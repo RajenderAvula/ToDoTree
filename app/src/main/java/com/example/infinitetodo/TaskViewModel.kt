@@ -108,7 +108,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun moveTask(task: TaskItem, directionUp: Boolean) {
+    // Sliding vertically to swap sibling position
+    fun moveTaskVertical(task: TaskItem, directionUp: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             val siblings = dao.getSubtasksSnapshot(task.parentId).toMutableList()
             val currentIndex = siblings.indexOfFirst { it.id == task.id }
@@ -124,7 +125,44 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CHECKLIST ACTIONS & SLIDING
+    // SLIDE RIGHT: Convert to Subtask (Indent)
+    fun indentTask(task: TaskItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val siblings = dao.getSubtasksSnapshot(task.parentId)
+            val currentIndex = siblings.indexOfFirst { it.id == task.id }
+            if (currentIndex > 0) {
+                // Adopted by the preceding sibling
+                val newParent = siblings[currentIndex - 1]
+                val newSiblings = dao.getSubtasksSnapshot(newParent.id)
+                dao.updateTask(
+                    task.copy(
+                        parentId = newParent.id,
+                        orderIndex = newSiblings.size
+                    )
+                )
+            }
+        }
+    }
+
+    // SLIDE LEFT: Convert Subtask to Main Task (Outdent)
+    fun outdentTask(task: TaskItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (task.parentId == null) return@launch // Already a root/main task
+
+            val currentParent = dao.getTaskById(task.parentId)
+            val newGrandParentId = currentParent?.parentId // Can be null (promoted to root)
+            val newSiblings = dao.getSubtasksSnapshot(newGrandParentId)
+
+            dao.updateTask(
+                task.copy(
+                    parentId = newGrandParentId,
+                    orderIndex = newSiblings.size
+                )
+            )
+        }
+    }
+
+    // Checklist operations
     fun addChecklistItem(taskId: Long, text: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -158,7 +196,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ATTACHMENTS ACTIONS & SLIDING
+    // Attachments operations
     fun addAttachment(taskId: Long, uri: Uri, name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
