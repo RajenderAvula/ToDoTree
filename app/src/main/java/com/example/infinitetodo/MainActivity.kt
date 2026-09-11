@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -162,7 +164,7 @@ fun InfiniteTodoApp(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search tasks, contacts, email...") },
+                            placeholder = { Text("Search tasks, notes, contacts...") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -336,14 +338,15 @@ fun InfiniteTodoApp(
             TaskEditorDialog(
                 titleHeader = "New Task",
                 initialTitle = "",
+                initialNotes = "",
                 initialReminderMs = null,
                 initialContactName = null,
                 initialContactPhone = null,
                 initialContactEmail = null,
                 initialVoicePath = null,
                 onDismiss = { isCreatingRootTask = false },
-                onConfirm = { title, time, syncCal, cName, cPhone, cEmail, voicePath ->
-                    viewModel.addTask(title, null, time, syncCal, cName, cPhone, cEmail, voicePath)
+                onConfirm = { title, notes, time, syncCal, cName, cPhone, cEmail, voicePath ->
+                    viewModel.addTask(title, notes, null, time, syncCal, cName, cPhone, cEmail, voicePath)
                     isCreatingRootTask = false
                 }
             )
@@ -353,14 +356,15 @@ fun InfiniteTodoApp(
             TaskEditorDialog(
                 titleHeader = "New Subtask",
                 initialTitle = "",
+                initialNotes = "",
                 initialReminderMs = null,
                 initialContactName = null,
                 initialContactPhone = null,
                 initialContactEmail = null,
                 initialVoicePath = null,
                 onDismiss = { showCreateDialogForParentId = null },
-                onConfirm = { title, time, syncCal, cName, cPhone, cEmail, voicePath ->
-                    viewModel.addTask(title, parentId, time, syncCal, cName, cPhone, cEmail, voicePath)
+                onConfirm = { title, notes, time, syncCal, cName, cPhone, cEmail, voicePath ->
+                    viewModel.addTask(title, notes, parentId, time, syncCal, cName, cPhone, cEmail, voicePath)
                     showCreateDialogForParentId = null
                 }
             )
@@ -370,14 +374,15 @@ fun InfiniteTodoApp(
             TaskEditorDialog(
                 titleHeader = "Edit Task",
                 initialTitle = task.title,
+                initialNotes = task.notes ?: "",
                 initialReminderMs = task.reminderTimestamp,
                 initialContactName = task.contactName,
                 initialContactPhone = task.contactPhone,
                 initialContactEmail = task.contactEmail,
                 initialVoicePath = task.voiceRecordingPath,
                 onDismiss = { taskToEdit = null },
-                onConfirm = { title, time, syncCal, cName, cPhone, cEmail, voicePath ->
-                    viewModel.updateTask(task, title, time, syncCal, cName, cPhone, cEmail, voicePath)
+                onConfirm = { title, notes, time, syncCal, cName, cPhone, cEmail, voicePath ->
+                    viewModel.updateTask(task, title, notes, time, syncCal, cName, cPhone, cEmail, voicePath)
                     taskToEdit = null
                 }
             )
@@ -395,6 +400,9 @@ fun TaskNodeView(
     onEditTask: (TaskItem) -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
+    var isNotesBoxExpanded by remember { mutableStateOf(false) }
+    var currentNoteText by remember(task.notes) { mutableStateOf(task.notes ?: "") }
+
     var isPlayingVoice by remember { mutableStateOf(false) }
     var newChecklistText by remember { mutableStateOf("") }
     var showAddChecklistField by remember { mutableStateOf(false) }
@@ -530,6 +538,18 @@ fun TaskNodeView(
                                 .clickable { onEditTask(task) }
                         )
 
+                        // Button to toggle the expandable notes box
+                        IconButton(
+                            modifier = Modifier.size(26.dp),
+                            onClick = { isNotesBoxExpanded = !isNotesBoxExpanded }
+                        ) {
+                            Icon(
+                                imageVector = if (isNotesBoxExpanded) Icons.Default.Notes else Icons.Default.Description,
+                                contentDescription = "Expand Notes",
+                                tint = if (!task.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            )
+                        }
+
                         if (viewMode == TaskViewMode.COMPACT) {
                             IconButton(modifier = Modifier.size(24.dp), onClick = { onAddSubtask(task.id) }) {
                                 Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(15.dp))
@@ -540,12 +560,52 @@ fun TaskNodeView(
                         }
                     }
 
-                    // Detailed metadata section: Auditing, Voice Note, Contact actions, Attachments, Checklists
+                    // EXPANDABLE TEXT BOX (Available for both Main Tasks & Subtasks)
+                    AnimatedVisibility(visible = isNotesBoxExpanded) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 32.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = currentNoteText,
+                                onValueChange = {
+                                    currentNoteText = it
+                                    viewModel.updateTaskNotes(task, it)
+                                },
+                                label = { Text("Task Notes / Details") },
+                                placeholder = { Text("Write detailed instructions, notes, or descriptions here...") },
+                                minLines = 2,
+                                maxLines = 8,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    // Collapsed preview snippet if note exists but box is not expanded
+                    if (!isNotesBoxExpanded && !task.notes.isNullOrBlank()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 36.dp, end = 8.dp, top = 2.dp)
+                                .clickable { isNotesBoxExpanded = true }
+                        ) {
+                            Text(
+                                text = "📝 ${task.notes}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    // Detailed metadata section
                     if (viewMode == TaskViewMode.DETAILED) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 32.dp, bottom = 2.dp),
+                                .padding(start = 32.dp, top = 4.dp, bottom = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -562,7 +622,7 @@ fun TaskNodeView(
                             )
                         }
 
-                        // CONTACT ACTION ROW: Name/Phone Chip + Call + SMS + WhatsApp + Email Compose
+                        // Contact Actions
                         if (!task.contactPhone.isNullOrBlank() || !task.contactEmail.isNullOrBlank()) {
                             Row(
                                 modifier = Modifier
@@ -571,7 +631,6 @@ fun TaskNodeView(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                // Contact Name chip
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = MaterialTheme.colorScheme.primaryContainer,
@@ -585,85 +644,53 @@ fun TaskNodeView(
                                     )
                                 }
 
-                                // 1. Phone Call Action
                                 if (!task.contactPhone.isNullOrBlank()) {
                                     IconButton(
                                         modifier = Modifier.size(28.dp),
                                         onClick = {
-                                            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                                                data = Uri.parse("tel:${task.contactPhone}")
-                                            }
-                                            context.startActivity(dialIntent)
+                                            context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${task.contactPhone}")))
                                         }
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Call,
-                                            contentDescription = "Call Contact",
-                                            modifier = Modifier.size(15.dp),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
+                                        Icon(Icons.Default.Call, contentDescription = "Call", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
                                     }
 
-                                    // 2. Normal SMS / Texting Action
                                     IconButton(
                                         modifier = Modifier.size(28.dp),
                                         onClick = {
-                                            val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
-                                                data = Uri.parse("smsto:${task.contactPhone}")
+                                            context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${task.contactPhone}")).apply {
                                                 putExtra("sms_body", "Regarding task: ${task.title}")
-                                            }
-                                            context.startActivity(smsIntent)
+                                            })
                                         }
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Sms,
-                                            contentDescription = "SMS Text Contact",
-                                            modifier = Modifier.size(15.dp),
-                                            tint = MaterialTheme.colorScheme.secondary
-                                        )
+                                        Icon(Icons.Default.Sms, contentDescription = "SMS", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.secondary)
                                     }
 
-                                    // 3. WhatsApp Texting Action
                                     IconButton(
                                         modifier = Modifier.size(28.dp),
                                         onClick = {
                                             try {
                                                 val cleanNumber = task.contactPhone.replace(Regex("[^0-9+]"), "")
                                                 val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode("Regarding task: ${task.title}")}")
-                                                val waIntent = Intent(Intent.ACTION_VIEW, uri)
-                                                context.startActivity(waIntent)
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
                                             } catch (_: Exception) {
                                                 Toast.makeText(context, "WhatsApp not installed", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.Chat,
-                                            contentDescription = "WhatsApp Contact",
-                                            modifier = Modifier.size(15.dp),
-                                            tint = Color(0xFF25D366) // Official WhatsApp Green
-                                        )
+                                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "WhatsApp", modifier = Modifier.size(15.dp), tint = Color(0xFF25D366))
                                     }
                                 }
 
-                                // 4. Compose Email Action
                                 if (!task.contactEmail.isNullOrBlank()) {
                                     IconButton(
                                         modifier = Modifier.size(28.dp),
                                         onClick = {
-                                            val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
-                                                data = Uri.parse("mailto:${task.contactEmail}")
+                                            context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:${task.contactEmail}")).apply {
                                                 putExtra(Intent.EXTRA_SUBJECT, "Regarding task: ${task.title}")
-                                            }
-                                            context.startActivity(emailIntent)
+                                            })
                                         }
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Mail,
-                                            contentDescription = "Email Contact",
-                                            modifier = Modifier.size(15.dp),
-                                            tint = MaterialTheme.colorScheme.tertiary
-                                        )
+                                        Icon(Icons.Default.Mail, contentDescription = "Email", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.tertiary)
                                     }
                                 }
                             }
@@ -703,11 +730,7 @@ fun TaskNodeView(
 
                         // Attachments List
                         if (attachments.isNotEmpty()) {
-                            Text(
-                                "Attachments:",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(start = 32.dp, top = 2.dp)
-                            )
+                            Text("Attachments:", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 32.dp, top = 2.dp))
                             attachments.forEach { att ->
                                 var attDragY by remember { mutableFloatStateOf(0f) }
                                 Row(
@@ -761,7 +784,7 @@ fun TaskNodeView(
                                             }
                                     )
                                     IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteAttachment(att) }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Delete Attachment", modifier = Modifier.size(14.dp))
+                                        Icon(Icons.Default.Close, contentDescription = "Delete", modifier = Modifier.size(14.dp))
                                     }
                                 }
                             }
@@ -769,11 +792,7 @@ fun TaskNodeView(
 
                         // Checklist Items
                         if (checklist.isNotEmpty()) {
-                            Text(
-                                "Checklist:",
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(start = 32.dp, top = 4.dp)
-                            )
+                            Text("Checklist:", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 32.dp, top = 4.dp))
                             checklist.forEach { item ->
                                 var itemDragY by remember { mutableFloatStateOf(0f) }
                                 Row(
@@ -850,7 +869,7 @@ fun TaskNodeView(
                             }
                         }
 
-                        // Detailed Action toolbar
+                        // Action toolbar
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -898,6 +917,7 @@ fun TaskNodeView(
 fun TaskEditorDialog(
     titleHeader: String,
     initialTitle: String,
+    initialNotes: String,
     initialReminderMs: Long?,
     initialContactName: String?,
     initialContactPhone: String?,
@@ -906,6 +926,7 @@ fun TaskEditorDialog(
     onDismiss: () -> Unit,
     onConfirm: (
         title: String,
+        notes: String,
         reminderMs: Long?,
         syncWithGoogleCalendar: Boolean,
         contactName: String?,
@@ -915,6 +936,7 @@ fun TaskEditorDialog(
     ) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
+    var notes by remember { mutableStateOf(initialNotes) }
     var reminderMs by remember { mutableStateOf(initialReminderMs) }
     var contactName by remember { mutableStateOf(initialContactName) }
     var contactPhone by remember { mutableStateOf(initialContactPhone) }
@@ -926,7 +948,6 @@ fun TaskEditorDialog(
     val context = LocalContext.current
     val audioHelper = remember { AudioRecorderHelper(context) }
 
-    // Contact picker launcher that extracts Phone AND Email
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact()
     ) { contactUri: Uri? ->
@@ -940,7 +961,6 @@ fun TaskEditorDialog(
                     val contactId = cursor.getString(idCol)
                     contactName = cursor.getString(nameCol)
 
-                    // Fetch Phone Number
                     if (cursor.getInt(hasPhoneCol) > 0) {
                         context.contentResolver.query(
                             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
@@ -956,7 +976,6 @@ fun TaskEditorDialog(
                         }
                     }
 
-                    // Fetch Email Address
                     context.contentResolver.query(
                         ContactsContract.CommonDataKinds.Email.CONTENT_URI,
                         null,
@@ -982,12 +1001,20 @@ fun TaskEditorDialog(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Task Description") },
+                    label = { Text("Task Title") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Voice Recorder Button
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Task Notes (Expandable Description)") },
+                    minLines = 2,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 OutlinedButton(
                     onClick = {
                         if (isRecording) {
@@ -1012,7 +1039,6 @@ fun TaskEditorDialog(
                     )
                 }
 
-                // Contact Picker Button
                 OutlinedButton(
                     onClick = { contactPickerLauncher.launch(null) },
                     modifier = Modifier.fillMaxWidth()
@@ -1028,7 +1054,6 @@ fun TaskEditorDialog(
                     )
                 }
 
-                // Date & Time Picker
                 OutlinedButton(
                     onClick = {
                         val calendar = Calendar.getInstance()
@@ -1081,7 +1106,7 @@ fun TaskEditorDialog(
                     if (isRecording) {
                         voicePath = audioHelper.stopRecording()
                     }
-                    onConfirm(title, reminderMs, syncCalendar, contactName, contactPhone, contactEmail, voicePath)
+                    onConfirm(title, notes, reminderMs, syncCalendar, contactName, contactPhone, contactEmail, voicePath)
                 }
             ) {
                 Text("Save")
