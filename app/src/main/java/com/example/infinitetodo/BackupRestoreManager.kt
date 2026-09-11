@@ -12,10 +12,6 @@ import java.util.zip.ZipOutputStream
 
 class BackupRestoreManager(private val context: Context) {
 
-    /**
-     * Builds a comprehensive ZIP backup containing tasks, checklists,
-     * voice recordings, and attached files.
-     */
     suspend fun createZipBackup(dao: TaskDao, destinationStream: OutputStream): Boolean {
         return try {
             val tasks = dao.getAllTasksSnapshot()
@@ -24,7 +20,6 @@ class BackupRestoreManager(private val context: Context) {
 
             val zipOut = ZipOutputStream(BufferedOutputStream(destinationStream))
 
-            // 1. Write tasks, checklists, and attachments database metadata to JSON
             val rootJson = JSONObject()
             val tasksArray = JSONArray()
             for (t in tasks) {
@@ -38,6 +33,8 @@ class BackupRestoreManager(private val context: Context) {
                     put("contactPhone", t.contactPhone ?: JSONObject.NULL)
                     put("voiceRecordingPath", t.voiceRecordingPath ?: JSONObject.NULL)
                     put("orderIndex", t.orderIndex)
+                    put("createdTimestamp", t.createdTimestamp)
+                    put("lastModifiedTimestamp", t.lastModifiedTimestamp)
                 }
                 tasksArray.put(obj)
             }
@@ -69,12 +66,10 @@ class BackupRestoreManager(private val context: Context) {
             }
             rootJson.put("attachments", attachmentsArray)
 
-            // Add metadata.json entry
             zipOut.putNextEntry(ZipEntry("metadata.json"))
             zipOut.write(rootJson.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            // 2. Package Voice Recordings into the ZIP
             for (t in tasks) {
                 val voicePath = t.voiceRecordingPath
                 if (!voicePath.isNullOrBlank()) {
@@ -87,7 +82,6 @@ class BackupRestoreManager(private val context: Context) {
                 }
             }
 
-            // 3. Package File Attachments into the ZIP
             for (att in attachments) {
                 try {
                     val uri = Uri.parse(att.uriString)
@@ -108,9 +102,6 @@ class BackupRestoreManager(private val context: Context) {
         }
     }
 
-    /**
-     * Creates a temporary ZIP file in cache and returns a content URI for emailing.
-     */
     suspend fun createMailAttachmentBackup(dao: TaskDao): Uri? {
         return try {
             val backupFile = File(context.cacheDir, "ToDoTree_Backup_${System.currentTimeMillis()}.zip")
@@ -123,10 +114,6 @@ class BackupRestoreManager(private val context: Context) {
         }
     }
 
-    /**
-     * Unpacks any chosen ZIP file (from local storage or mail download) and restores
-     * all tasks, files, and voice recordings.
-     */
     suspend fun restoreFromZip(dao: TaskDao, sourceStream: InputStream): Boolean {
         return try {
             val zipIn = ZipInputStream(BufferedInputStream(sourceStream))
@@ -135,7 +122,7 @@ class BackupRestoreManager(private val context: Context) {
             val restoredFilesDir = File(context.filesDir, "restored_attachments").apply { mkdirs() }
             val restoredVoiceDir = File(context.filesDir, "restored_voices").apply { mkdirs() }
 
-            val fileMap = mutableMapOf<String, String>() // ZipEntryName -> New Internal Path
+            val fileMap = mutableMapOf<String, String>()
 
             while (entry != null) {
                 val entryName = entry.name
@@ -164,13 +151,10 @@ class BackupRestoreManager(private val context: Context) {
             val checklistsArray = rootJson.optJSONArray("checklists") ?: JSONArray()
             val attachmentsArray = rootJson.optJSONArray("attachments") ?: JSONArray()
 
-            // Map old task IDs to newly generated task IDs to preserve parent-child hierarchy
             val idMapping = mutableMapOf<Long, Long>()
 
-            // Clear existing database
             dao.clearAllTasks()
 
-            // 1. Insert tasks in order
             for (i in 0 until tasksArray.length()) {
                 val obj = tasksArray.getJSONObject(i)
                 val oldId = obj.getLong("id")
@@ -185,6 +169,7 @@ class BackupRestoreManager(private val context: Context) {
                     }
                 }
 
+                val now = System.currentTimeMillis()
                 val task = TaskItem(
                     parentId = mappedParentId,
                     title = obj.getString("title"),
@@ -193,14 +178,15 @@ class BackupRestoreManager(private val context: Context) {
                     contactName = if (obj.isNull("contactName")) null else obj.getString("contactName"),
                     contactPhone = if (obj.isNull("contactPhone")) null else obj.getString("contactPhone"),
                     voiceRecordingPath = voicePath,
-                    orderIndex = obj.optInt("orderIndex", 0)
+                    orderIndex = obj.optInt("orderIndex", 0),
+                    createdTimestamp = obj.optLong("createdTimestamp", now),
+                    lastModifiedTimestamp = obj.optLong("lastModifiedTimestamp", now)
                 )
 
                 val newId = dao.insertTask(task)
                 idMapping[oldId] = newId
             }
 
-            // 2. Insert checklist items
             val newChecklists = mutableListOf<ChecklistItem>()
             for (i in 0 until checklistsArray.length()) {
                 val obj = checklistsArray.getJSONObject(i)
@@ -218,7 +204,6 @@ class BackupRestoreManager(private val context: Context) {
             }
             dao.insertAllChecklistItems(newChecklists)
 
-            // 3. Insert attachments
             val newAttachments = mutableListOf<TaskAttachment>()
             for (i in 0 until attachmentsArray.length()) {
                 val obj = attachmentsArray.getJSONObject(i)
