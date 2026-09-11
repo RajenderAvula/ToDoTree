@@ -29,67 +29,73 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         reminderEpochMs: Long? = null,
         attachmentUri: Uri? = null,
         attachmentName: String? = null,
-        syncWithGoogleCalendar: Boolean = false
+        syncWithGoogleCalendar: Boolean = false,
+        contactName: String? = null,
+        contactPhone: String? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            // 1. Persist storage permissions for the attached file
-            attachmentUri?.let { uri ->
-                try {
-                    getApplication<Application>().contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                } catch (_: SecurityException) {}
-            }
+            persistUriPermission(attachmentUri)
 
-            // 2. Silent Google Calendar Event Creation (Option B)
             var googleCalendarEventId: Long? = null
             if (syncWithGoogleCalendar && reminderEpochMs != null) {
-                val hasPermission = ContextCompat.checkSelfPermission(
-                    getApplication(),
-                    android.Manifest.permission.WRITE_CALENDAR
-                ) == PackageManager.PERMISSION_GRANTED
-
-                if (hasPermission) {
-                    val calId = CalendarHelper.getPrimaryGoogleCalendarId(getApplication())
-                    if (calId != null) {
-                        googleCalendarEventId = CalendarHelper.insertEvent(
-                            context = getApplication(),
-                            calendarId = calId,
-                            title = title,
-                            startTimeMs = reminderEpochMs,
-                            notes = "Attachment: ${attachmentName ?: "None"}\nSynced via Infinite ToDo"
-                        )
-                    }
-                }
+                googleCalendarEventId = syncCalendarEvent(title, reminderEpochMs, attachmentName)
             }
 
-            // 3. Save Task to Room DB
+            val siblings = dao.getSubtasksSnapshot(parentId)
             val newTask = TaskItem(
                 parentId = parentId,
                 title = title,
                 reminderTimestamp = reminderEpochMs,
                 attachmentUri = attachmentUri?.toString(),
                 attachmentName = attachmentName,
-                calendarEventId = googleCalendarEventId
+                calendarEventId = googleCalendarEventId,
+                contactName = contactName,
+                contactPhone = contactPhone,
+                orderIndex = siblings.size
             )
             val generatedId = dao.insertTask(newTask)
 
-            // 4. Schedule Local Notification via WorkManager
             if (reminderEpochMs != null && reminderEpochMs > System.currentTimeMillis()) {
-                val delay = reminderEpochMs - System.currentTimeMillis()
-                val workData = Data.Builder()
-                    .putLong("TASK_ID", generatedId)
-                    .putString("TASK_TITLE", title)
-                    .build()
+                scheduleReminder(generatedId, title, reminderEpochMs)
+            }
+        }
+    }
 
-                val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
-                    .setInitialDelay(delay, TimeUnit.MILLISECONDS)
-                    .setInputData(workData)
-                    .addTag("TASK_$generatedId")
-                    .build()
+    fun updateTask(
+        task: TaskItem,
+        newTitle: String,
+        reminderEpochMs: Long?,
+        attachmentUri: Uri?,
+        attachmentName: String?,
+        syncWithGoogleCalendar: Boolean,
+        contactName: String?,
+        contactPhone: String?
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            persistUriPermission(attachmentUri)
 
-                workManager.enqueue(request)
+            var calendarEventId = task.calendarEventId
+            if (syncWithGoogleCalendar && reminderEpochMs != null) {
+                if (calendarEventId != null) {
+                    CalendarHelper.deleteEvent(getApplication(), calendarEventId)
+                }
+                calendarEventId = syncCalendarEvent(newTitle, reminderEpochMs, attachmentName)
+            }
+
+            val updatedTask = task.copy(
+                title = newTitle,
+                reminderTimestamp = reminderEpochMs,
+                attachmentUri = attachmentUri?.toString() ?: task.attachmentUri,
+                attachmentName = attachmentName ?: task.attachmentName,
+                calendarEventId = calendarEventId,
+                contactName = contactName,
+                contactPhone = contactPhone
+            )
+            dao.updateTask(updatedTask)
+
+            workManager.cancelAllWorkByTag("TASK_${task.id}")
+            if (reminderEpochMs != null && reminderEpochMs > System.currentTimeMillis()) {
+                scheduleReminder(task.id, newTitle, reminderEpochMs)
             }
         }
     }
@@ -104,12 +110,100 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.deleteTask(task)
             workManager.cancelAllWorkByTag("TASK_${task.id}")
-
-            // Silently delete from Google Calendar if it was linked
             task.calendarEventId?.let { calEventId ->
                 CalendarHelper.deleteEvent(getApplication(), calEventId)
             }
         }
     }
-}
 
+    // Reordering sliding tasks up and down
+    fun moveTask(task: TaskItem, directionUp: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val siblings = dao.getSubtasksSnapshot(task.parentId).toMutableList()
+            val currentIndex = siblings.indexOfFirst { it.id == task.id }
+            if (currentIndex == -1) return@launch
+
+            val targetIndex = if (directionUp) currentIndex - 1 else currentIndex + 1
+            if (targetIndex in siblings.indices) {
+                val currentTask = siblings[currentIndex]
+                val swapTask = siblings[targetIndex]
+
+                dao.updateTask(currentTask.copy(orderIndex = targetIndex))
+                dao.updateTask(swapTask.copy(orderIndex = currentIndex))
+            }
+        }
+    }
+
+    // Deep duplicate a task and all recursive child subtasks
+    fun duplicateTask(taskId: Long, targetParentId: Long?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val original = dao.getTaskById(taskId) ?: return@launch
+            deepCopyRecursive(original, targetParentId)
+        }
+    }
+
+    private suspend fun deepCopyRecursive(task: TaskItem, newParentId: Long?) {
+        val siblings = dao.getSubtasksSnapshot(newParentId)
+        val copy = task.copy(
+            id = 0L,
+            parentId = newParentId,
+            title = "${task.title} (Copy)",
+            calendarEventId = null,
+            orderIndex = siblings.size
+        )
+        val newGeneratedId = dao.insertTask(copy)
+
+        val children = dao.getSubtasksSnapshot(task.id)
+        for (child in children) {
+            deepCopyRecursive(child, newGeneratedId)
+        }
+    }
+
+    private fun persistUriPermission(uri: Uri?) {
+        uri?.let {
+            try {
+                getApplication<Application>().contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: SecurityException) {}
+        }
+    }
+
+    private fun syncCalendarEvent(title: String, timeMs: Long, attachmentName: String?): Long? {
+        val hasPermission = ContextCompat.checkSelfPermission(
+            getApplication(),
+            android.Manifest.permission.WRITE_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasPermission) {
+            val calId = CalendarHelper.getPrimaryGoogleCalendarId(getApplication())
+            if (calId != null) {
+                return CalendarHelper.insertEvent(
+                    context = getApplication(),
+                    calendarId = calId,
+                    title = title,
+                    startTimeMs = timeMs,
+                    notes = "Attachment: ${attachmentName ?: "None"}"
+                )
+            }
+        }
+        return null
+    }
+
+    private fun scheduleReminder(taskId: Long, title: String, triggerAtEpochMs: Long) {
+        val delay = triggerAtEpochMs - System.currentTimeMillis()
+        val workData = Data.Builder()
+            .putLong("TASK_ID", taskId)
+            .putString("TASK_TITLE", title)
+            .build()
+
+        val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
+            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+            .setInputData(workData)
+            .addTag("TASK_$taskId")
+            .build()
+
+        workManager.enqueue(request)
+    }
+}
