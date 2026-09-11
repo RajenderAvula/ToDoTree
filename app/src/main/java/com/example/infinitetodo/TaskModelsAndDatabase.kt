@@ -26,7 +26,9 @@ data class TaskItem(
     val contactName: String? = null,
     val contactPhone: String? = null,
     val voiceRecordingPath: String? = null,
-    val orderIndex: Int = 0
+    val orderIndex: Int = 0,
+    val createdTimestamp: Long = System.currentTimeMillis(),
+    val lastModifiedTimestamp: Long = System.currentTimeMillis()
 )
 
 @Entity(
@@ -85,6 +87,16 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     suspend fun getTaskById(id: Long): TaskItem?
+
+    // Global Search across title, contact name, and contact phone
+    @Query("""
+        SELECT * FROM tasks 
+        WHERE title LIKE '%' || :query || '%' 
+           OR contactName LIKE '%' || :query || '%' 
+           OR contactPhone LIKE '%' || :query || '%'
+        ORDER BY lastModifiedTimestamp DESC
+    """)
+    fun searchTasks(query: String): Flow<List<TaskItem>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: TaskItem): Long
@@ -148,7 +160,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, TaskAttachment::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
