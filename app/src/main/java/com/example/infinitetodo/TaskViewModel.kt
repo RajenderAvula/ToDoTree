@@ -32,6 +32,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addTask(
         title: String,
+        notes: String? = null,
         parentId: Long? = null,
         reminderEpochMs: Long? = null,
         syncWithGoogleCalendar: Boolean = false,
@@ -44,13 +45,14 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val now = System.currentTimeMillis()
             var googleCalendarEventId: Long? = null
             if (syncWithGoogleCalendar && reminderEpochMs != null) {
-                googleCalendarEventId = syncCalendarEvent(title, reminderEpochMs)
+                googleCalendarEventId = syncCalendarEvent(title, reminderEpochMs, notes)
             }
 
             val siblings = dao.getSubtasksSnapshot(parentId)
             val newTask = TaskItem(
                 parentId = parentId,
                 title = title,
+                notes = notes,
                 reminderTimestamp = reminderEpochMs,
                 calendarEventId = googleCalendarEventId,
                 contactName = contactName,
@@ -72,6 +74,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     fun updateTask(
         task: TaskItem,
         newTitle: String,
+        newNotes: String?,
         reminderEpochMs: Long?,
         syncWithGoogleCalendar: Boolean,
         contactName: String?,
@@ -86,11 +89,12 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 if (calendarEventId != null) {
                     CalendarHelper.deleteEvent(getApplication(), calendarEventId)
                 }
-                calendarEventId = syncCalendarEvent(newTitle, reminderEpochMs)
+                calendarEventId = syncCalendarEvent(newTitle, reminderEpochMs, newNotes)
             }
 
             val updatedTask = task.copy(
                 title = newTitle,
+                notes = newNotes,
                 reminderTimestamp = reminderEpochMs,
                 calendarEventId = calendarEventId,
                 contactName = contactName,
@@ -105,6 +109,14 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             if (reminderEpochMs != null && reminderEpochMs > System.currentTimeMillis()) {
                 scheduleReminder(task.id, newTitle, reminderEpochMs)
             }
+        }
+    }
+
+    // Direct update for inline expandable text notes
+    fun updateTaskNotes(task: TaskItem, newNotes: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            dao.updateTask(task.copy(notes = newNotes, lastModifiedTimestamp = now))
         }
     }
 
@@ -265,7 +277,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // BACKUP & RESTORE OPERATIONS
     fun backupToDevice(destinationStream: OutputStream, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val success = backupRestoreManager.createZipBackup(dao, destinationStream)
@@ -298,7 +309,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun syncCalendarEvent(title: String, timeMs: Long): Long? {
+    private fun syncCalendarEvent(title: String, timeMs: Long, notes: String?): Long? {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
             android.Manifest.permission.WRITE_CALENDAR
@@ -312,7 +323,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     calendarId = calId,
                     title = title,
                     startTimeMs = timeMs,
-                    notes = "Synced from Infinite ToDo"
+                    notes = notes ?: "Synced from Infinite ToDo"
                 )
             }
         }
