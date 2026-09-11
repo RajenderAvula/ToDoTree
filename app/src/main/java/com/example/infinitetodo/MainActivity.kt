@@ -25,12 +25,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowRight
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
@@ -160,7 +162,7 @@ fun InfiniteTodoApp(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search tasks, contacts...") },
+                            placeholder = { Text("Search tasks, contacts, email...") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -337,10 +339,11 @@ fun InfiniteTodoApp(
                 initialReminderMs = null,
                 initialContactName = null,
                 initialContactPhone = null,
+                initialContactEmail = null,
                 initialVoicePath = null,
                 onDismiss = { isCreatingRootTask = false },
-                onConfirm = { title, time, syncCal, cName, cPhone, voicePath ->
-                    viewModel.addTask(title, null, time, syncCal, cName, cPhone, voicePath)
+                onConfirm = { title, time, syncCal, cName, cPhone, cEmail, voicePath ->
+                    viewModel.addTask(title, null, time, syncCal, cName, cPhone, cEmail, voicePath)
                     isCreatingRootTask = false
                 }
             )
@@ -353,10 +356,11 @@ fun InfiniteTodoApp(
                 initialReminderMs = null,
                 initialContactName = null,
                 initialContactPhone = null,
+                initialContactEmail = null,
                 initialVoicePath = null,
                 onDismiss = { showCreateDialogForParentId = null },
-                onConfirm = { title, time, syncCal, cName, cPhone, voicePath ->
-                    viewModel.addTask(title, parentId, time, syncCal, cName, cPhone, voicePath)
+                onConfirm = { title, time, syncCal, cName, cPhone, cEmail, voicePath ->
+                    viewModel.addTask(title, parentId, time, syncCal, cName, cPhone, cEmail, voicePath)
                     showCreateDialogForParentId = null
                 }
             )
@@ -369,10 +373,11 @@ fun InfiniteTodoApp(
                 initialReminderMs = task.reminderTimestamp,
                 initialContactName = task.contactName,
                 initialContactPhone = task.contactPhone,
+                initialContactEmail = task.contactEmail,
                 initialVoicePath = task.voiceRecordingPath,
                 onDismiss = { taskToEdit = null },
-                onConfirm = { title, time, syncCal, cName, cPhone, voicePath ->
-                    viewModel.updateTask(task, title, time, syncCal, cName, cPhone, voicePath)
+                onConfirm = { title, time, syncCal, cName, cPhone, cEmail, voicePath ->
+                    viewModel.updateTask(task, title, time, syncCal, cName, cPhone, cEmail, voicePath)
                     taskToEdit = null
                 }
             )
@@ -404,7 +409,6 @@ fun TaskNodeView(
 
     val context = LocalContext.current
     val audioHelper = remember { AudioRecorderHelper(context) }
-
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     val attachmentPickerLauncher = rememberLauncherForActivityResult(
@@ -536,9 +540,8 @@ fun TaskNodeView(
                         }
                     }
 
-                    // Detailed metadata section with date/time audit logs
+                    // Detailed metadata section: Auditing, Voice Note, Contact actions, Attachments, Checklists
                     if (viewMode == TaskViewMode.DETAILED) {
-                        // Date/Time audit row (Created & Modified)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -559,14 +562,121 @@ fun TaskNodeView(
                             )
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 32.dp, bottom = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            task.voiceRecordingPath?.let { path ->
+                        // CONTACT ACTION ROW: Name/Phone Chip + Call + SMS + WhatsApp + Email Compose
+                        if (!task.contactPhone.isNullOrBlank() || !task.contactEmail.isNullOrBlank()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 32.dp, top = 2.dp, bottom = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Contact Name chip
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.padding(end = 2.dp)
+                                ) {
+                                    Text(
+                                        text = task.contactName ?: (task.contactPhone ?: task.contactEmail ?: "Contact"),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    )
+                                }
+
+                                // 1. Phone Call Action
+                                if (!task.contactPhone.isNullOrBlank()) {
+                                    IconButton(
+                                        modifier = Modifier.size(28.dp),
+                                        onClick = {
+                                            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                                                data = Uri.parse("tel:${task.contactPhone}")
+                                            }
+                                            context.startActivity(dialIntent)
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Call,
+                                            contentDescription = "Call Contact",
+                                            modifier = Modifier.size(15.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+
+                                    // 2. Normal SMS / Texting Action
+                                    IconButton(
+                                        modifier = Modifier.size(28.dp),
+                                        onClick = {
+                                            val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+                                                data = Uri.parse("smsto:${task.contactPhone}")
+                                                putExtra("sms_body", "Regarding task: ${task.title}")
+                                            }
+                                            context.startActivity(smsIntent)
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Sms,
+                                            contentDescription = "SMS Text Contact",
+                                            modifier = Modifier.size(15.dp),
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+
+                                    // 3. WhatsApp Texting Action
+                                    IconButton(
+                                        modifier = Modifier.size(28.dp),
+                                        onClick = {
+                                            try {
+                                                val cleanNumber = task.contactPhone.replace(Regex("[^0-9+]"), "")
+                                                val uri = Uri.parse("https://api.whatsapp.com/send?phone=$cleanNumber&text=${Uri.encode("Regarding task: ${task.title}")}")
+                                                val waIntent = Intent(Intent.ACTION_VIEW, uri)
+                                                context.startActivity(waIntent)
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "WhatsApp not installed", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                                            contentDescription = "WhatsApp Contact",
+                                            modifier = Modifier.size(15.dp),
+                                            tint = Color(0xFF25D366) // Official WhatsApp Green
+                                        )
+                                    }
+                                }
+
+                                // 4. Compose Email Action
+                                if (!task.contactEmail.isNullOrBlank()) {
+                                    IconButton(
+                                        modifier = Modifier.size(28.dp),
+                                        onClick = {
+                                            val emailIntent = Intent(Intent.ACTION_SENDTO).apply {
+                                                data = Uri.parse("mailto:${task.contactEmail}")
+                                                putExtra(Intent.EXTRA_SUBJECT, "Regarding task: ${task.title}")
+                                            }
+                                            context.startActivity(emailIntent)
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Mail,
+                                            contentDescription = "Email Contact",
+                                            modifier = Modifier.size(15.dp),
+                                            tint = MaterialTheme.colorScheme.tertiary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Voice Memo Player
+                        task.voiceRecordingPath?.let { path ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 32.dp, bottom = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Button(
                                     onClick = {
                                         if (isPlayingVoice) {
@@ -587,23 +697,6 @@ fun TaskNodeView(
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(if (isPlayingVoice) "Stop" else "Voice Memo", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-
-                            if (!task.contactPhone.isNullOrBlank()) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(MaterialTheme.colorScheme.primaryContainer)
-                                        .clickable {
-                                            context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${task.contactPhone}")))
-                                        }
-                                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                                ) {
-                                    Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(12.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("${task.contactName ?: "Call"}: ${task.contactPhone}", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -808,6 +901,7 @@ fun TaskEditorDialog(
     initialReminderMs: Long?,
     initialContactName: String?,
     initialContactPhone: String?,
+    initialContactEmail: String?,
     initialVoicePath: String?,
     onDismiss: () -> Unit,
     onConfirm: (
@@ -816,6 +910,7 @@ fun TaskEditorDialog(
         syncWithGoogleCalendar: Boolean,
         contactName: String?,
         contactPhone: String?,
+        contactEmail: String?,
         voicePath: String?
     ) -> Unit
 ) {
@@ -823,6 +918,7 @@ fun TaskEditorDialog(
     var reminderMs by remember { mutableStateOf(initialReminderMs) }
     var contactName by remember { mutableStateOf(initialContactName) }
     var contactPhone by remember { mutableStateOf(initialContactPhone) }
+    var contactEmail by remember { mutableStateOf(initialContactEmail) }
     var voicePath by remember { mutableStateOf(initialVoicePath) }
     var syncCalendar by remember { mutableStateOf(true) }
     var isRecording by remember { mutableStateOf(false) }
@@ -830,6 +926,7 @@ fun TaskEditorDialog(
     val context = LocalContext.current
     val audioHelper = remember { AudioRecorderHelper(context) }
 
+    // Contact picker launcher that extracts Phone AND Email
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact()
     ) { contactUri: Uri? ->
@@ -842,6 +939,8 @@ fun TaskEditorDialog(
 
                     val contactId = cursor.getString(idCol)
                     contactName = cursor.getString(nameCol)
+
+                    // Fetch Phone Number
                     if (cursor.getInt(hasPhoneCol) > 0) {
                         context.contentResolver.query(
                             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
@@ -854,6 +953,20 @@ fun TaskEditorDialog(
                                 val numberCol = phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
                                 contactPhone = phoneCursor.getString(numberCol)
                             }
+                        }
+                    }
+
+                    // Fetch Email Address
+                    context.contentResolver.query(
+                        ContactsContract.CommonDataKinds.Email.CONTENT_URI,
+                        null,
+                        "${ContactsContract.CommonDataKinds.Email.CONTACT_ID} = ?",
+                        arrayOf(contactId),
+                        null
+                    )?.use { emailCursor ->
+                        if (emailCursor.moveToFirst()) {
+                            val emailCol = emailCursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS)
+                            contactEmail = emailCursor.getString(emailCol)
                         }
                     }
                 }
@@ -874,6 +987,7 @@ fun TaskEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // Voice Recorder Button
                 OutlinedButton(
                     onClick = {
                         if (isRecording) {
@@ -898,6 +1012,7 @@ fun TaskEditorDialog(
                     )
                 }
 
+                // Contact Picker Button
                 OutlinedButton(
                     onClick = { contactPickerLauncher.launch(null) },
                     modifier = Modifier.fillMaxWidth()
@@ -905,14 +1020,15 @@ fun TaskEditorDialog(
                     Icon(Icons.Default.Person, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = if (!contactPhone.isNullOrBlank()) {
-                            "${contactName ?: "Contact"}: $contactPhone"
+                        text = if (!contactName.isNullOrBlank()) {
+                            "$contactName (${listOfNotNull(contactPhone, contactEmail).joinToString(", ")})"
                         } else {
-                            "Attach Contact to Call"
+                            "Attach Contact (Call / SMS / WhatsApp / Email)"
                         }
                     )
                 }
 
+                // Date & Time Picker
                 OutlinedButton(
                     onClick = {
                         val calendar = Calendar.getInstance()
@@ -965,7 +1081,7 @@ fun TaskEditorDialog(
                     if (isRecording) {
                         voicePath = audioHelper.stopRecording()
                     }
-                    onConfirm(title, reminderMs, syncCalendar, contactName, contactPhone, voicePath)
+                    onConfirm(title, reminderMs, syncCalendar, contactName, contactPhone, contactEmail, voicePath)
                 }
             ) {
                 Text("Save")
