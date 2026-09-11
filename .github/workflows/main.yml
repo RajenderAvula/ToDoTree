@@ -21,7 +21,15 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '17'
-          cache: 'gradle'
+
+      # Fallback: Generates gradlew automatically if it is missing
+      - name: Ensure Gradle Wrapper Exists
+        run: |
+          if [ ! -f "gradlew" ]; then
+            echo "gradlew not found. Installing gradle and generating wrapper..."
+            sudo apt-get update && sudo apt-get install -y gradle
+            gradle wrapper
+          fi
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
