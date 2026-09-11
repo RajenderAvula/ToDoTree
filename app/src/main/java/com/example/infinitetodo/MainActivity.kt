@@ -18,6 +18,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,13 +45,32 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            val context = LocalContext.current
+            var currentTheme by remember { mutableStateOf(ThemePreferences.getTheme(context)) }
+            var currentViewMode by remember { mutableStateOf(ThemePreferences.getViewMode(context)) }
+
+            InfiniteTodoTheme(
+                themeMode = currentTheme,
+                isDarkSystem = isSystemInDarkTheme()
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
                     val taskViewModel: TaskViewModel = viewModel()
-                    InfiniteTodoApp(taskViewModel)
+                    InfiniteTodoApp(
+                        viewModel = taskViewModel,
+                        currentTheme = currentTheme,
+                        onThemeChange = {
+                            currentTheme = it
+                            ThemePreferences.saveTheme(context, it)
+                        },
+                        viewMode = currentViewMode,
+                        onViewModeChange = {
+                            currentViewMode = it
+                            ThemePreferences.saveViewMode(context, it)
+                        }
+                    )
                 }
             }
         }
@@ -59,12 +79,19 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InfiniteTodoApp(viewModel: TaskViewModel) {
+fun InfiniteTodoApp(
+    viewModel: TaskViewModel,
+    currentTheme: AppThemeMode,
+    onThemeChange: (AppThemeMode) -> Unit,
+    viewMode: TaskViewMode,
+    onViewModeChange: (TaskViewMode) -> Unit
+) {
     val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())
     var showCreateDialogForParentId by remember { mutableStateOf<Long?>(null) }
     var taskToEdit by remember { mutableStateOf<TaskItem?>(null) }
     var isCreatingRootTask by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     // Launchers for Backup and Restore
@@ -126,6 +153,22 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
             TopAppBar(
                 title = { Text("Hierarchical Infinite Tasks") },
                 actions = {
+                    // Quick View Mode Toggle (Compact vs Detailed)
+                    IconButton(onClick = {
+                        val nextMode = if (viewMode == TaskViewMode.DETAILED) TaskViewMode.COMPACT else TaskViewMode.DETAILED
+                        onViewModeChange(nextMode)
+                    }) {
+                        Icon(
+                            imageVector = if (viewMode == TaskViewMode.DETAILED) Icons.Default.ViewAgenda else Icons.Default.ViewHeadline,
+                            contentDescription = "Switch View Style"
+                        )
+                    }
+
+                    // Theme selector button
+                    IconButton(onClick = { showThemeDialog = true }) {
+                        Icon(Icons.Default.Palette, contentDescription = "Themes")
+                    }
+
                     IconButton(onClick = { showMenu = !showMenu }) {
                         Icon(Icons.Default.MoreVert, contentDescription = "Menu")
                     }
@@ -184,11 +227,60 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
                 TaskNodeView(
                     task = rootTask,
                     depth = 0,
+                    viewMode = viewMode,
                     viewModel = viewModel,
                     onAddSubtask = { parentId -> showCreateDialogForParentId = parentId },
                     onEditTask = { taskToEdit = it }
                 )
             }
+        }
+
+        // Theme Selector Modal Dialog
+        if (showThemeDialog) {
+            AlertDialog(
+                onDismissRequest = { showThemeDialog = false },
+                title = { Text("Select App Theme") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppThemeMode.values().forEach { mode ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        onThemeChange(mode)
+                                        showThemeDialog = false
+                                    }
+                                    .padding(vertical = 8.dp, horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = (currentTheme == mode),
+                                    onClick = {
+                                        onThemeChange(mode)
+                                        showThemeDialog = false
+                                    }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = when (mode) {
+                                        AppThemeMode.SYSTEM -> "System Default"
+                                        AppThemeMode.LIGHT -> "Standard Light"
+                                        AppThemeMode.DARK -> "Midnight Dark"
+                                        AppThemeMode.EMERALD -> "Emerald Green"
+                                        AppThemeMode.SUNSET -> "Sunset Orange"
+                                        AppThemeMode.OCEAN -> "Ocean Blue"
+                                    },
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showThemeDialog = false }) { Text("Close") }
+                }
+            )
         }
 
         if (isCreatingRootTask) {
@@ -245,6 +337,7 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
 fun TaskNodeView(
     task: TaskItem,
     depth: Int,
+    viewMode: TaskViewMode,
     viewModel: TaskViewModel,
     onAddSubtask: (Long) -> Unit,
     onEditTask: (TaskItem) -> Unit
@@ -314,10 +407,10 @@ fun TaskNodeView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .offset { IntOffset(animatedOffsetX.roundToInt(), 0) }
-                    .padding(vertical = 3.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    .padding(vertical = if (viewMode == TaskViewMode.COMPACT) 1.dp else 3.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = if (viewMode == TaskViewMode.COMPACT) 1.dp else 2.dp)
             ) {
-                Column(modifier = Modifier.padding(6.dp)) {
+                Column(modifier = Modifier.padding(if (viewMode == TaskViewMode.COMPACT) 2.dp else 6.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -327,7 +420,7 @@ fun TaskNodeView(
                             contentDescription = "Slide to Move",
                             tint = MaterialTheme.colorScheme.outline,
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(24.dp)
                                 .pointerInput(task.id) {
                                     detectDragGestures(
                                         onDrag = { change, dragAmount ->
@@ -361,7 +454,7 @@ fun TaskNodeView(
                         )
 
                         IconButton(
-                            modifier = Modifier.size(28.dp),
+                            modifier = Modifier.size(26.dp),
                             onClick = { isExpanded = !isExpanded }
                         ) {
                             Icon(
@@ -377,246 +470,259 @@ fun TaskNodeView(
 
                         Text(
                             text = task.title,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = if (viewMode == TaskViewMode.COMPACT) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                             textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { onEditTask(task) }
                         )
-                    }
 
-                    // Voice Note & Calling Chip
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 32.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        task.voiceRecordingPath?.let { path ->
-                            Button(
-                                onClick = {
-                                    if (isPlayingVoice) {
-                                        audioHelper.stopPlayback()
-                                        isPlayingVoice = false
-                                    } else {
-                                        isPlayingVoice = true
-                                        audioHelper.playAudio(path) { isPlayingVoice = false }
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                modifier = Modifier.height(28.dp)
-                            ) {
-                                Icon(
-                                    if (isPlayingVoice) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                    contentDescription = "Play Audio",
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(if (isPlayingVoice) "Stop" else "Voice Memo", style = MaterialTheme.typography.bodySmall)
+                        if (viewMode == TaskViewMode.COMPACT) {
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { onAddSubtask(task.id) }) {
+                                Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(15.dp))
                             }
-                        }
-
-                        if (!task.contactPhone.isNullOrBlank()) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
-                                    .clickable {
-                                        context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${task.contactPhone}")))
-                                    }
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                            ) {
-                                Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("${task.contactName ?: "Call"}: ${task.contactPhone}", style = MaterialTheme.typography.bodySmall)
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteTask(task) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(15.dp))
                             }
                         }
                     }
 
-                    // MOVABLE ATTACHMENTS
-                    if (attachments.isNotEmpty()) {
-                        Text(
-                            "Attachments:",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(start = 32.dp, top = 2.dp)
-                        )
-                        attachments.forEach { att ->
-                            var attDragY by remember { mutableFloatStateOf(0f) }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 32.dp, top = 2.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.DragHandle,
-                                    contentDescription = "Drag Attachment",
-                                    tint = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .pointerInput(att.id) {
-                                            detectDragGestures(
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
-                                                    attDragY += dragAmount.y
-                                                    if (attDragY > 30f) {
-                                                        viewModel.moveAttachment(att, false)
-                                                        attDragY = 0f
-                                                    } else if (attDragY < -30f) {
-                                                        viewModel.moveAttachment(att, true)
-                                                        attDragY = 0f
-                                                    }
-                                                },
-                                                onDragEnd = { attDragY = 0f }
-                                            )
-                                        }
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = att.fileName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable {
-                                            try {
-                                                context.startActivity(
-                                                    Intent(Intent.ACTION_VIEW, Uri.parse(att.uriString)).apply {
-                                                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                    }
-                                                )
-                                            } catch (_: Exception) {
-                                                Toast.makeText(context, "Cannot open file", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                )
-                                IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteAttachment(att) }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Delete Attachment", modifier = Modifier.size(14.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    // MOVABLE CHECKLIST
-                    if (checklist.isNotEmpty()) {
-                        Text(
-                            "Checklist:",
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(start = 32.dp, top = 4.dp)
-                        )
-                        checklist.forEach { item ->
-                            var itemDragY by remember { mutableFloatStateOf(0f) }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 32.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.DragHandle,
-                                    contentDescription = "Drag Item",
-                                    tint = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .pointerInput(item.id) {
-                                            detectDragGestures(
-                                                onDrag = { change, dragAmount ->
-                                                    change.consume()
-                                                    itemDragY += dragAmount.y
-                                                    if (itemDragY > 30f) {
-                                                        viewModel.moveChecklistItem(item, false)
-                                                        itemDragY = 0f
-                                                    } else if (itemDragY < -30f) {
-                                                        viewModel.moveChecklistItem(item, true)
-                                                        itemDragY = 0f
-                                                    }
-                                                },
-                                                onDragEnd = { itemDragY = 0f }
-                                            )
-                                        }
-                                )
-                                Checkbox(
-                                    checked = item.isDone,
-                                    onCheckedChange = { viewModel.toggleChecklistItem(item) },
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = item.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteChecklistItem(item) }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Delete Item", modifier = Modifier.size(14.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    if (showAddChecklistField) {
+                    // Detailed metadata section (Voice note, call shortcut, attachments, checklist)
+                    if (viewMode == TaskViewMode.DETAILED) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(start = 32.dp, top = 4.dp),
+                                .padding(start = 32.dp, bottom = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            OutlinedTextField(
-                                value = newChecklistText,
-                                onValueChange = { newChecklistText = it },
-                                placeholder = { Text("New checklist item...") },
-                                singleLine = true,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(onClick = {
-                                if (newChecklistText.isNotBlank()) {
-                                    viewModel.addChecklistItem(task.id, newChecklistText)
-                                    newChecklistText = ""
-                                    showAddChecklistField = false
+                            task.voiceRecordingPath?.let { path ->
+                                Button(
+                                    onClick = {
+                                        if (isPlayingVoice) {
+                                            audioHelper.stopPlayback()
+                                            isPlayingVoice = false
+                                        } else {
+                                            isPlayingVoice = true
+                                            audioHelper.playAudio(path) { isPlayingVoice = false }
+                                        }
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Icon(
+                                        if (isPlayingVoice) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                        contentDescription = "Play Audio",
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(if (isPlayingVoice) "Stop" else "Voice Memo", style = MaterialTheme.typography.bodySmall)
                                 }
-                            }) {
-                                Icon(Icons.Default.Check, contentDescription = "Confirm item")
+                            }
+
+                            if (!task.contactPhone.isNullOrBlank()) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.primaryContainer)
+                                        .clickable {
+                                            context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${task.contactPhone}")))
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                                ) {
+                                    Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(12.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("${task.contactName ?: "Call"}: ${task.contactPhone}", style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
-                    }
 
-                    // Action toolbar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 28.dp, top = 4.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(modifier = Modifier.size(28.dp), onClick = { showAddChecklistField = !showAddChecklistField }) {
-                            Icon(Icons.Default.Checklist, contentDescription = "Add Checklist", modifier = Modifier.size(17.dp))
+                        // Attachments List
+                        if (attachments.isNotEmpty()) {
+                            Text(
+                                "Attachments:",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(start = 32.dp, top = 2.dp)
+                            )
+                            attachments.forEach { att ->
+                                var attDragY by remember { mutableFloatStateOf(0f) }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 32.dp, top = 2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DragHandle,
+                                        contentDescription = "Drag Attachment",
+                                        tint = MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .pointerInput(att.id) {
+                                                detectDragGestures(
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        attDragY += dragAmount.y
+                                                        if (attDragY > 30f) {
+                                                            viewModel.moveAttachment(att, false)
+                                                            attDragY = 0f
+                                                        } else if (attDragY < -30f) {
+                                                            viewModel.moveAttachment(att, true)
+                                                            attDragY = 0f
+                                                        }
+                                                    },
+                                                    onDragEnd = { attDragY = 0f }
+                                                )
+                                            }
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = att.fileName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                try {
+                                                    context.startActivity(
+                                                        Intent(Intent.ACTION_VIEW, Uri.parse(att.uriString)).apply {
+                                                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                                        }
+                                                    )
+                                                } catch (_: Exception) {
+                                                    Toast.makeText(context, "Cannot open file", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                    )
+                                    IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteAttachment(att) }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Delete Attachment", modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            }
                         }
-                        IconButton(modifier = Modifier.size(28.dp), onClick = { attachmentPickerLauncher.launch(arrayOf("*/*")) }) {
-                            Icon(Icons.Default.AttachFile, contentDescription = "Add Attachment", modifier = Modifier.size(17.dp))
+
+                        // Checklist Items
+                        if (checklist.isNotEmpty()) {
+                            Text(
+                                "Checklist:",
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(start = 32.dp, top = 4.dp)
+                            )
+                            checklist.forEach { item ->
+                                var itemDragY by remember { mutableFloatStateOf(0f) }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DragHandle,
+                                        contentDescription = "Drag Item",
+                                        tint = MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .pointerInput(item.id) {
+                                                detectDragGestures(
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        itemDragY += dragAmount.y
+                                                        if (itemDragY > 30f) {
+                                                            viewModel.moveChecklistItem(item, false)
+                                                            itemDragY = 0f
+                                                        } else if (itemDragY < -30f) {
+                                                            viewModel.moveChecklistItem(item, true)
+                                                            itemDragY = 0f
+                                                        }
+                                                    },
+                                                    onDragEnd = { itemDragY = 0f }
+                                                )
+                                            }
+                                    )
+                                    Checkbox(
+                                        checked = item.isDone,
+                                        onCheckedChange = { viewModel.toggleChecklistItem(item) },
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(
+                                        text = item.text,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteChecklistItem(item) }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Delete Item", modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            }
                         }
-                        IconButton(modifier = Modifier.size(28.dp), onClick = { onAddSubtask(task.id) }) {
-                            Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(17.dp))
+
+                        if (showAddChecklistField) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 32.dp, top = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedTextField(
+                                    value = newChecklistText,
+                                    onValueChange = { newChecklistText = it },
+                                    placeholder = { Text("New checklist item...") },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(onClick = {
+                                    if (newChecklistText.isNotBlank()) {
+                                        viewModel.addChecklistItem(task.id, newChecklistText)
+                                        newChecklistText = ""
+                                        showAddChecklistField = false
+                                    }
+                                }) {
+                                    Icon(Icons.Default.Check, contentDescription = "Confirm item")
+                                }
+                            }
                         }
-                        IconButton(modifier = Modifier.size(28.dp), onClick = { onEditTask(task) }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(17.dp))
-                        }
-                        IconButton(modifier = Modifier.size(28.dp), onClick = { viewModel.deleteTask(task) }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(17.dp))
+
+                        // Detailed Action toolbar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 28.dp, top = 4.dp),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(modifier = Modifier.size(28.dp), onClick = { showAddChecklistField = !showAddChecklistField }) {
+                                Icon(Icons.Default.Checklist, contentDescription = "Add Checklist", modifier = Modifier.size(17.dp))
+                            }
+                            IconButton(modifier = Modifier.size(28.dp), onClick = { attachmentPickerLauncher.launch(arrayOf("*/*")) }) {
+                                Icon(Icons.Default.AttachFile, contentDescription = "Add Attachment", modifier = Modifier.size(17.dp))
+                            }
+                            IconButton(modifier = Modifier.size(28.dp), onClick = { onAddSubtask(task.id) }) {
+                                Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(17.dp))
+                            }
+                            IconButton(modifier = Modifier.size(28.dp), onClick = { onEditTask(task) }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(17.dp))
+                            }
+                            IconButton(modifier = Modifier.size(28.dp), onClick = { viewModel.deleteTask(task) }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(17.dp))
+                            }
                         }
                     }
                 }
             }
         }
 
+        // Recursive subtree
         if (isExpanded) {
             subtasks.forEach { subtask ->
                 TaskNodeView(
                     task = subtask,
                     depth = depth + 1,
+                    viewMode = viewMode,
                     viewModel = viewModel,
                     onAddSubtask = onAddSubtask,
                     onEditTask = onEditTask
