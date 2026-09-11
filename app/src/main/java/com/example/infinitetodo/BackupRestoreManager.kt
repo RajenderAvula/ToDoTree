@@ -27,10 +27,12 @@ class BackupRestoreManager(private val context: Context) {
                     put("id", t.id)
                     put("parentId", t.parentId ?: JSONObject.NULL)
                     put("title", t.title)
+                    put("notes", t.notes ?: JSONObject.NULL)
                     put("isCompleted", t.isCompleted)
                     put("reminderTimestamp", t.reminderTimestamp ?: JSONObject.NULL)
                     put("contactName", t.contactName ?: JSONObject.NULL)
                     put("contactPhone", t.contactPhone ?: JSONObject.NULL)
+                    put("contactEmail", t.contactEmail ?: JSONObject.NULL)
                     put("voiceRecordingPath", t.voiceRecordingPath ?: JSONObject.NULL)
                     put("orderIndex", t.orderIndex)
                     put("createdTimestamp", t.createdTimestamp)
@@ -173,10 +175,12 @@ class BackupRestoreManager(private val context: Context) {
                 val task = TaskItem(
                     parentId = mappedParentId,
                     title = obj.getString("title"),
+                    notes = if (obj.isNull("notes")) null else obj.getString("notes"),
                     isCompleted = obj.optBoolean("isCompleted", false),
                     reminderTimestamp = if (obj.isNull("reminderTimestamp")) null else obj.getLong("reminderTimestamp"),
                     contactName = if (obj.isNull("contactName")) null else obj.getString("contactName"),
                     contactPhone = if (obj.isNull("contactPhone")) null else obj.getString("contactPhone"),
+                    contactEmail = if (obj.isNull("contactEmail")) null else obj.getString("contactEmail"),
                     voiceRecordingPath = voicePath,
                     orderIndex = obj.optInt("orderIndex", 0),
                     createdTimestamp = obj.optLong("createdTimestamp", now),
