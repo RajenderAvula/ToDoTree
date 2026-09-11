@@ -60,13 +60,20 @@ object CalendarHelper {
         context: Context,
         eventId: Long,
         title: String,
-        notes: String?
+        notes: String?,
+        startTimeMs: Long? = null
     ) {
         try {
             val values = ContentValues().apply {
                 put(CalendarContract.Events.TITLE, title)
                 if (notes != null) {
                     put(CalendarContract.Events.DESCRIPTION, notes)
+                }
+                if (startTimeMs != null) {
+                    val endTimeMs = startTimeMs + (60 * 60 * 1000)
+                    put(CalendarContract.Events.DTSTART, startTimeMs)
+                    put(CalendarContract.Events.DTEND, endTimeMs)
+                    put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
                 }
             }
             val updateUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
