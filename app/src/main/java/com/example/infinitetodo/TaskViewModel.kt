@@ -37,6 +37,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         syncWithGoogleCalendar: Boolean = false,
         contactName: String? = null,
         contactPhone: String? = null,
+        contactEmail: String? = null,
         voicePath: String? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -54,6 +55,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 calendarEventId = googleCalendarEventId,
                 contactName = contactName,
                 contactPhone = contactPhone,
+                contactEmail = contactEmail,
                 voiceRecordingPath = voicePath,
                 orderIndex = siblings.size,
                 createdTimestamp = now,
@@ -74,6 +76,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         syncWithGoogleCalendar: Boolean,
         contactName: String?,
         contactPhone: String?,
+        contactEmail: String?,
         voicePath: String?
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -92,6 +95,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 calendarEventId = calendarEventId,
                 contactName = contactName,
                 contactPhone = contactPhone,
+                contactEmail = contactEmail,
                 voiceRecordingPath = voicePath ?: task.voiceRecordingPath,
                 lastModifiedTimestamp = now
             )
@@ -107,12 +111,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleTaskCompletion(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            dao.updateTask(
-                task.copy(
-                    isCompleted = !task.isCompleted,
-                    lastModifiedTimestamp = now
-                )
-            )
+            dao.updateTask(task.copy(isCompleted = !task.isCompleted, lastModifiedTimestamp = now))
         }
     }
 
