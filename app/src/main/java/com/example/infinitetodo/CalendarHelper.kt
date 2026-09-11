@@ -8,88 +8,76 @@ import java.util.TimeZone
 
 object CalendarHelper {
 
-    /**
-     * Resolves the primary Google account calendar ID.
-     */
     fun getPrimaryGoogleCalendarId(context: Context): Long? {
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
-            CalendarContract.Calendars.ACCOUNT_TYPE,
-            CalendarContract.Calendars.IS_PRIMARY
+            CalendarContract.Calendars.IS_PRIMARY,
+            CalendarContract.Calendars.ACCOUNT_TYPE
         )
-
         val uri = CalendarContract.Calendars.CONTENT_URI
-        val selection = "(${CalendarContract.Calendars.ACCOUNT_TYPE} = ?)"
-        val selectionArgs = arrayOf("com.google")
+        val cursor = context.contentResolver.query(uri, projection, null, null, null)
 
-        return try {
-            context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(CalendarContract.Calendars._ID)
-                val primaryCol = cursor.getColumnIndexOrThrow(CalendarContract.Calendars.IS_PRIMARY)
+        cursor?.use {
+            var fallbackId: Long? = null
+            while (it.moveToNext()) {
+                val id = it.getLong(0)
+                val isPrimary = it.getInt(1)
+                val accountType = it.getString(2)
 
-                var fallbackId: Long? = null
-                while (cursor.moveToNext()) {
-                    val calId = cursor.getLong(idCol)
-                    val isPrimary = cursor.getInt(primaryCol) == 1
-                    if (isPrimary) return calId
-                    if (fallbackId == null) fallbackId = calId
-                }
-                fallbackId
+                if (isPrimary == 1) return id
+                if (accountType == "com.google") fallbackId = id
             }
-        } catch (_: SecurityException) {
-            null
+            if (fallbackId != null) return fallbackId
         }
+        return 1L
     }
 
-    /**
-     * Inserts an event silently into Google Calendar with a 10-minute popup reminder.
-     */
     fun insertEvent(
         context: Context,
         calendarId: Long,
         title: String,
         startTimeMs: Long,
-        notes: String
+        notes: String?
     ): Long? {
-        val values = ContentValues().apply {
-            put(CalendarContract.Events.CALENDAR_ID, calendarId)
-            put(CalendarContract.Events.TITLE, title)
-            put(CalendarContract.Events.DESCRIPTION, notes)
-            put(CalendarContract.Events.DTSTART, startTimeMs)
-            put(CalendarContract.Events.DTEND, startTimeMs + (60 * 60 * 1000)) // 1 hour duration
-            put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
-            put(CalendarContract.Events.HAS_ALARM, 1)
-        }
-
         return try {
-            val eventUri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
-            val eventId = eventUri?.lastPathSegment?.toLongOrNull()
-
-            if (eventId != null) {
-                // Add a notification reminder 10 minutes prior
-                val reminderValues = ContentValues().apply {
-                    put(CalendarContract.Reminders.EVENT_ID, eventId)
-                    put(CalendarContract.Reminders.METHOD, CalendarContract.Reminders.METHOD_ALERT)
-                    put(CalendarContract.Reminders.MINUTES, 10)
-                }
-                context.contentResolver.insert(CalendarContract.Reminders.CONTENT_URI, reminderValues)
+            val endTimeMs = startTimeMs + (60 * 60 * 1000) // Default 1 hour duration
+            val values = ContentValues().apply {
+                put(CalendarContract.Events.DTSTART, startTimeMs)
+                put(CalendarContract.Events.DTEND, endTimeMs)
+                put(CalendarContract.Events.TITLE, title)
+                put(CalendarContract.Events.DESCRIPTION, notes ?: "")
+                put(CalendarContract.Events.CALENDAR_ID, calendarId)
+                put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
             }
-            eventId
-        } catch (_: SecurityException) {
+            val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+            uri?.lastPathSegment?.toLongOrNull()
+        } catch (_: Exception) {
             null
         }
     }
 
-    /**
-     * Deletes an event silently by its Google Calendar event ID.
-     */
+    fun updateEvent(
+        context: Context,
+        eventId: Long,
+        title: String,
+        notes: String?
+    ) {
+        try {
+            val values = ContentValues().apply {
+                put(CalendarContract.Events.TITLE, title)
+                if (notes != null) {
+                    put(CalendarContract.Events.DESCRIPTION, notes)
+                }
+            }
+            val updateUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+            context.contentResolver.update(updateUri, values, null, null)
+        } catch (_: Exception) {}
+    }
+
     fun deleteEvent(context: Context, eventId: Long) {
         try {
             val deleteUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
             context.contentResolver.delete(deleteUri, null, null)
-        } catch (_: SecurityException) {
-            // Handled when calendar access permission is revoked
-        }
+        } catch (_: Exception) {}
     }
 }
-
