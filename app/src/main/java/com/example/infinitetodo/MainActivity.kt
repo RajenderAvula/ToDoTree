@@ -207,6 +207,18 @@ fun InfiniteTodoApp(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
+                            // Global explicit sync button
+                            DropdownMenuItem(
+                                text = { Text("Sync All to Google Calendar") },
+                                leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.syncAllTasksToCalendar { count ->
+                                        Toast.makeText(context, "Synced $count task(s) to Calendar", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                            HorizontalDivider()
                             DropdownMenuItem(
                                 text = { Text("Backup to Device (ZIP)") },
                                 leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
@@ -538,7 +550,6 @@ fun TaskNodeView(
                                 .clickable { onEditTask(task) }
                         )
 
-                        // Button to toggle the expandable notes box
                         IconButton(
                             modifier = Modifier.size(26.dp),
                             onClick = { isNotesBoxExpanded = !isNotesBoxExpanded }
@@ -551,6 +562,14 @@ fun TaskNodeView(
                         }
 
                         if (viewMode == TaskViewMode.COMPACT) {
+                            // Quick calendar sync icon
+                            IconButton(modifier = Modifier.size(24.dp), onClick = {
+                                viewModel.manualSyncTaskToCalendar(task.id) { success ->
+                                    Toast.makeText(context, if (success) "Calendar updated" else "Set reminder time to sync", Toast.LENGTH_SHORT).show()
+                                }
+                            }) {
+                                Icon(Icons.Default.Sync, contentDescription = "Sync to Calendar", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
                             IconButton(modifier = Modifier.size(24.dp), onClick = { onAddSubtask(task.id) }) {
                                 Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(15.dp))
                             }
@@ -560,7 +579,7 @@ fun TaskNodeView(
                         }
                     }
 
-                    // EXPANDABLE TEXT BOX (Available for both Main Tasks & Subtasks)
+                    // Expandable Notes Box
                     AnimatedVisibility(visible = isNotesBoxExpanded) {
                         Column(
                             modifier = Modifier
@@ -582,7 +601,6 @@ fun TaskNodeView(
                         }
                     }
 
-                    // Collapsed preview snippet if note exists but box is not expanded
                     if (!isNotesBoxExpanded && !task.notes.isNullOrBlank()) {
                         Row(
                             modifier = Modifier
@@ -600,7 +618,6 @@ fun TaskNodeView(
                         }
                     }
 
-                    // Detailed metadata section
                     if (viewMode == TaskViewMode.DETAILED) {
                         Row(
                             modifier = Modifier
@@ -622,7 +639,7 @@ fun TaskNodeView(
                             )
                         }
 
-                        // Contact Actions
+                        // Contacts & Quick Action Buttons
                         if (!task.contactPhone.isNullOrBlank() || !task.contactEmail.isNullOrBlank()) {
                             Row(
                                 modifier = Modifier
@@ -728,9 +745,9 @@ fun TaskNodeView(
                             }
                         }
 
-                        // Attachments List
+                        // Attachments List with live auto-calendar sync
                         if (attachments.isNotEmpty()) {
-                            Text("Attachments:", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 32.dp, top = 2.dp))
+                            Text("Attachments (Auto-synced to Calendar):", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 32.dp, top = 2.dp))
                             attachments.forEach { att ->
                                 var attDragY by remember { mutableFloatStateOf(0f) }
                                 Row(
@@ -869,7 +886,7 @@ fun TaskNodeView(
                             }
                         }
 
-                        // Action toolbar
+                        // Detailed Action toolbar (Added dedicated Sync button)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -877,6 +894,23 @@ fun TaskNodeView(
                             horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Dedicated "Sync to Calendar" Button
+                            IconButton(modifier = Modifier.size(28.dp), onClick = {
+                                viewModel.manualSyncTaskToCalendar(task.id) { success ->
+                                    Toast.makeText(
+                                        context,
+                                        if (success) "Synced task amendments to Calendar" else "Set a reminder date to enable calendar sync",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }) {
+                                Icon(
+                                    Icons.Default.Sync,
+                                    contentDescription = "Sync Amendments to Calendar",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                             IconButton(modifier = Modifier.size(28.dp), onClick = { showAddChecklistField = !showAddChecklistField }) {
                                 Icon(Icons.Default.Checklist, contentDescription = "Add Checklist", modifier = Modifier.size(17.dp))
                             }
