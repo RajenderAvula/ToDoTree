@@ -25,6 +25,7 @@ data class TaskItem(
     val calendarEventId: Long? = null,
     val contactName: String? = null,
     val contactPhone: String? = null,
+    val contactEmail: String? = null,
     val voiceRecordingPath: String? = null,
     val orderIndex: Int = 0,
     val createdTimestamp: Long = System.currentTimeMillis(),
@@ -88,12 +89,12 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     suspend fun getTaskById(id: Long): TaskItem?
 
-    // Global Search across title, contact name, and contact phone
     @Query("""
         SELECT * FROM tasks 
         WHERE title LIKE '%' || :query || '%' 
            OR contactName LIKE '%' || :query || '%' 
            OR contactPhone LIKE '%' || :query || '%'
+           OR contactEmail LIKE '%' || :query || '%'
         ORDER BY lastModifiedTimestamp DESC
     """)
     fun searchTasks(query: String): Flow<List<TaskItem>>
@@ -160,7 +161,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, TaskAttachment::class],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
