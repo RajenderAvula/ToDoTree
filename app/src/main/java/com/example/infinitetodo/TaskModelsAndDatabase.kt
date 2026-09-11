@@ -20,6 +20,7 @@ data class TaskItem(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val parentId: Long? = null,
     val title: String,
+    val notes: String? = null,
     val isCompleted: Boolean = false,
     val reminderTimestamp: Long? = null,
     val calendarEventId: Long? = null,
@@ -92,6 +93,7 @@ interface TaskDao {
     @Query("""
         SELECT * FROM tasks 
         WHERE title LIKE '%' || :query || '%' 
+           OR notes LIKE '%' || :query || '%'
            OR contactName LIKE '%' || :query || '%' 
            OR contactPhone LIKE '%' || :query || '%'
            OR contactEmail LIKE '%' || :query || '%'
@@ -114,7 +116,6 @@ interface TaskDao {
     @Query("DELETE FROM tasks")
     suspend fun clearAllTasks()
 
-    // Checklist operations
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     fun getChecklistForTask(taskId: Long): Flow<List<ChecklistItem>>
 
@@ -136,7 +137,6 @@ interface TaskDao {
     @Delete
     suspend fun deleteChecklistItem(item: ChecklistItem)
 
-    // Attachment operations
     @Query("SELECT * FROM task_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     fun getAttachmentsForTask(taskId: Long): Flow<List<TaskAttachment>>
 
@@ -161,7 +161,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, TaskAttachment::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
