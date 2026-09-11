@@ -1,0 +1,56 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background circle / badge -->
+    <path
+        android:fillColor="#E8F5E9"
+        android:pathData="M54,4 A50,50 0 1,1 53.9,4 Z" />
+
+    <!-- Central stem (rachis) of the tamarind pinnate leaf -->
+    <path
+        android:strokeColor="#5D4037"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M22,86 C36,70 54,46 84,22" />
+
+    <!-- Leaflet Pair 1 (Base) -->
+    <path
+        android:fillColor="#43A047"
+        android:pathData="M32,70 C28,67 27,62 30,59 C33,56 38,57 41,60 C44,63 43,68 40,71 C37,74 35,73 32,70 Z" />
+    <path
+        android:fillColor="#66BB6A"
+        android:pathData="M37,75 C39,78 44,79 47,76 C50,73 49,68 46,65 C43,62 38,63 35,66 C32,69 35,72 37,75 Z" />
+
+    <!-- Leaflet Pair 2 -->
+    <path
+        android:fillColor="#388E3C"
+        android:pathData="M42,58 C38,55 37,50 40,47 C43,44 48,45 51,48 C54,51 53,56 50,59 C47,62 45,61 42,58 Z" />
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M47,63 C49,66 54,67 57,64 C60,61 59,56 56,53 C53,50 48,51 45,54 C42,57 45,60 47,63 Z" />
+
+    <!-- Leaflet Pair 3 -->
+    <path
+        android:fillColor="#2E7D32"
+        android:pathData="M52,46 C48,43 47,38 50,35 C53,32 58,33 61,36 C64,39 63,44 60,47 C57,50 55,49 52,46 Z" />
+    <path
+        android:fillColor="#43A047"
+        android:pathData="M57,51 C59,54 64,55 67,52 C70,49 69,44 66,41 C63,38 58,39 55,42 C52,45 55,48 57,51 Z" />
+
+    <!-- Leaflet Pair 4 (Near Tip) -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M62,34 C58,31 57,26 60,23 C63,20 68,21 71,24 C74,27 73,32 70,35 C67,38 65,37 62,34 Z" />
+    <path
+        android:fillColor="#388E3C"
+        android:pathData="M67,39 C69,42 74,43 77,40 C80,37 79,32 76,29 C73,26 68,27 65,30 C62,33 65,36 67,39 Z" />
+
+    <!-- Terminal Leaflet (Tip) -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M80,24 C82,20 86,19 88,21 C90,23 89,27 87,29 C85,31 81,30 79,28 C77,26 78,25 80,24 Z" />
+
+</vector>
