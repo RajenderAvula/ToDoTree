@@ -22,11 +22,50 @@ data class TaskItem(
     val title: String,
     val isCompleted: Boolean = false,
     val reminderTimestamp: Long? = null,
-    val attachmentUri: String? = null,
-    val attachmentName: String? = null,
     val calendarEventId: Long? = null,
     val contactName: String? = null,
     val contactPhone: String? = null,
+    val voiceRecordingPath: String? = null,
+    val orderIndex: Int = 0
+)
+
+@Entity(
+    tableName = "checklist_items",
+    foreignKeys = [
+        ForeignKey(
+            entity = TaskItem::class,
+            parentColumns = ["id"],
+            childColumns = ["taskId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index(value = ["taskId"])]
+)
+data class ChecklistItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val taskId: Long,
+    val text: String,
+    val isDone: Boolean = false,
+    val orderIndex: Int = 0
+)
+
+@Entity(
+    tableName = "task_attachments",
+    foreignKeys = [
+        ForeignKey(
+            entity = TaskItem::class,
+            parentColumns = ["id"],
+            childColumns = ["taskId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index(value = ["taskId"])]
+)
+data class TaskAttachment(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+    val taskId: Long,
+    val uriString: String,
+    val fileName: String,
     val orderIndex: Int = 0
 )
 
@@ -52,9 +91,45 @@ interface TaskDao {
 
     @Delete
     suspend fun deleteTask(task: TaskItem)
+
+    // Checklist operations
+    @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
+    fun getChecklistForTask(taskId: Long): Flow<List<ChecklistItem>>
+
+    @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
+    suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertChecklistItem(item: ChecklistItem): Long
+
+    @Update
+    suspend fun updateChecklistItem(item: ChecklistItem)
+
+    @Delete
+    suspend fun deleteChecklistItem(item: ChecklistItem)
+
+    // Attachment operations
+    @Query("SELECT * FROM task_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
+    fun getAttachmentsForTask(taskId: Long): Flow<List<TaskAttachment>>
+
+    @Query("SELECT * FROM task_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
+    suspend fun getAttachmentsSnapshot(taskId: Long): List<TaskAttachment>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAttachment(attachment: TaskAttachment): Long
+
+    @Update
+    suspend fun updateAttachment(attachment: TaskAttachment)
+
+    @Delete
+    suspend fun deleteAttachment(attachment: TaskAttachment)
 }
 
-@Database(entities = [TaskItem::class], version = 2, exportSchema = false)
+@Database(
+    entities = [TaskItem::class, ChecklistItem::class, TaskAttachment::class],
+    version = 3,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
 
