@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
@@ -101,6 +102,11 @@ fun InfiniteTodoApp(
     var isCreatingRootTask by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+
+    // Target Destination Dialog for Move or Copy
+    var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }
+    var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }
+
     val context = LocalContext.current
 
     val createBackupLauncher = rememberLauncherForActivityResult(
@@ -164,7 +170,7 @@ fun InfiniteTodoApp(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search tasks, notes, contacts...") },
+                            placeholder = { Text("Search tasks, checklists, notes...") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -207,14 +213,14 @@ fun InfiniteTodoApp(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
-                            // Global explicit sync button
                             DropdownMenuItem(
                                 text = { Text("Sync All to Google Calendar") },
                                 leadingIcon = { Icon(Icons.Default.Sync, contentDescription = null) },
                                 onClick = {
                                     showMenu = false
                                     viewModel.syncAllTasksToCalendar { count ->
-                                        Toast.makeText(context, "Synced $count task(s) to Calendar", Toast.LENGTH_SHORT).show()
+                                        val msg = if (count >= 0) "Synced $count task(s) to Calendar" else "Calendar permission required"
+                                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             )
@@ -282,7 +288,9 @@ fun InfiniteTodoApp(
                         viewMode = viewMode,
                         viewModel = viewModel,
                         onAddSubtask = { parentId -> showCreateDialogForParentId = parentId },
-                        onEditTask = { taskToEdit = it }
+                        onEditTask = { taskToEdit = it },
+                        onMoveToTarget = { taskForTargetMove = it },
+                        onCopyToTarget = { taskForTargetCopy = it }
                     )
                 }
             } else {
@@ -293,10 +301,42 @@ fun InfiniteTodoApp(
                         viewMode = viewMode,
                         viewModel = viewModel,
                         onAddSubtask = { parentId -> showCreateDialogForParentId = parentId },
-                        onEditTask = { taskToEdit = it }
+                        onEditTask = { taskToEdit = it },
+                        onMoveToTarget = { taskForTargetMove = it },
+                        onCopyToTarget = { taskForTargetCopy = it }
                     )
                 }
             }
+        }
+
+        // Target Destination Move Dialog
+        taskForTargetMove?.let { movingTask ->
+            TaskDestinationDialog(
+                title = "Move '${movingTask.title}' to...",
+                currentTaskId = movingTask.id,
+                viewModel = viewModel,
+                onDismiss = { taskForTargetMove = null },
+                onSelectTarget = { targetParentId ->
+                    viewModel.moveTaskToTarget(movingTask, targetParentId)
+                    taskForTargetMove = null
+                    Toast.makeText(context, "Task moved successfully", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+
+        // Target Destination Copy Dialog
+        taskForTargetCopy?.let { copyingTask ->
+            TaskDestinationDialog(
+                title = "Copy '${copyingTask.title}' to...",
+                currentTaskId = copyingTask.id,
+                viewModel = viewModel,
+                onDismiss = { taskForTargetCopy = null },
+                onSelectTarget = { targetParentId ->
+                    viewModel.copyTaskToTarget(copyingTask.id, targetParentId)
+                    taskForTargetCopy = null
+                    Toast.makeText(context, "Task copied successfully", Toast.LENGTH_SHORT).show()
+                }
+            )
         }
 
         if (showThemeDialog) {
@@ -409,7 +449,9 @@ fun TaskNodeView(
     viewMode: TaskViewMode,
     viewModel: TaskViewModel,
     onAddSubtask: (Long) -> Unit,
-    onEditTask: (TaskItem) -> Unit
+    onEditTask: (TaskItem) -> Unit,
+    onMoveToTarget: (TaskItem) -> Unit,
+    onCopyToTarget: (TaskItem) -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     var isNotesBoxExpanded by remember { mutableStateOf(false) }
@@ -488,6 +530,7 @@ fun TaskNodeView(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Gesture sliding touch handle
                         Icon(
                             imageVector = Icons.Default.DragIndicator,
                             contentDescription = "Slide to Move",
@@ -526,8 +569,26 @@ fun TaskNodeView(
                                 }
                         )
 
+                        // Reorder Up & Down Arrow Buttons
+                        IconButton(modifier = Modifier.size(22.dp), onClick = { viewModel.moveTaskVertical(task, directionUp = true) }) {
+                            Icon(Icons.Default.ArrowDropUp, contentDescription = "Move Up", modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(modifier = Modifier.size(22.dp), onClick = { viewModel.moveTaskVertical(task, directionUp = false) }) {
+                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Move Down", modifier = Modifier.size(20.dp))
+                        }
+
+                        // Hierarchy Left / Right Arrow Buttons
+                        if (task.parentId != null) {
+                            IconButton(modifier = Modifier.size(22.dp), onClick = { viewModel.outdentTask(task) }) {
+                                Icon(Icons.Default.KeyboardDoubleArrowLeft, contentDescription = "Promote to Main Task", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        IconButton(modifier = Modifier.size(22.dp), onClick = { viewModel.indentTask(task) }) {
+                            Icon(Icons.Default.KeyboardDoubleArrowRight, contentDescription = "Make Subtask", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(16.dp))
+                        }
+
                         IconButton(
-                            modifier = Modifier.size(26.dp),
+                            modifier = Modifier.size(24.dp),
                             onClick = { isExpanded = !isExpanded }
                         ) {
                             Icon(
@@ -562,13 +623,16 @@ fun TaskNodeView(
                         }
 
                         if (viewMode == TaskViewMode.COMPACT) {
-                            // Quick calendar sync icon
+                            // Quick Calendar Sync Button
                             IconButton(modifier = Modifier.size(24.dp), onClick = {
-                                viewModel.manualSyncTaskToCalendar(task.id) { success ->
-                                    Toast.makeText(context, if (success) "Calendar updated" else "Set reminder time to sync", Toast.LENGTH_SHORT).show()
+                                viewModel.manualSyncTaskToCalendar(task.id) { feedback ->
+                                    Toast.makeText(context, feedback, Toast.LENGTH_SHORT).show()
                                 }
                             }) {
                                 Icon(Icons.Default.Sync, contentDescription = "Sync to Calendar", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { attachmentPickerLauncher.launch(arrayOf("*/*")) }) {
+                                Icon(Icons.Default.AttachFile, contentDescription = "Attach File", modifier = Modifier.size(15.dp))
                             }
                             IconButton(modifier = Modifier.size(24.dp), onClick = { onAddSubtask(task.id) }) {
                                 Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(15.dp))
@@ -615,6 +679,72 @@ fun TaskNodeView(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                        }
+                    }
+
+                    // Attachments List
+                    if (attachments.isNotEmpty()) {
+                        Text(
+                            "Attachments (${attachments.size}):",
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(start = 32.dp, top = 4.dp)
+                        )
+                        attachments.forEach { att ->
+                            var attDragY by remember { mutableFloatStateOf(0f) }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 32.dp, top = 2.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DragHandle,
+                                    contentDescription = "Drag Attachment",
+                                    tint = MaterialTheme.colorScheme.outline,
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .pointerInput(att.id) {
+                                            detectDragGestures(
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    attDragY += dragAmount.y
+                                                    if (attDragY > 30f) {
+                                                        viewModel.moveAttachment(att, false)
+                                                        attDragY = 0f
+                                                    } else if (attDragY < -30f) {
+                                                        viewModel.moveAttachment(att, true)
+                                                        attDragY = 0f
+                                                    }
+                                                },
+                                                onDragEnd = { attDragY = 0f }
+                                            )
+                                        }
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = att.fileName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            try {
+                                                context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(att.uriString)).apply {
+                                                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                                    }
+                                                )
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "Cannot open file", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                )
+                                IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteAttachment(att) }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Delete Attachment", modifier = Modifier.size(14.dp))
+                                }
+                            }
                         }
                     }
 
@@ -745,68 +875,6 @@ fun TaskNodeView(
                             }
                         }
 
-                        // Attachments List with live auto-calendar sync
-                        if (attachments.isNotEmpty()) {
-                            Text("Attachments (Auto-synced to Calendar):", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 32.dp, top = 2.dp))
-                            attachments.forEach { att ->
-                                var attDragY by remember { mutableFloatStateOf(0f) }
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 32.dp, top = 2.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.DragHandle,
-                                        contentDescription = "Drag Attachment",
-                                        tint = MaterialTheme.colorScheme.outline,
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .pointerInput(att.id) {
-                                                detectDragGestures(
-                                                    onDrag = { change, dragAmount ->
-                                                        change.consume()
-                                                        attDragY += dragAmount.y
-                                                        if (attDragY > 30f) {
-                                                            viewModel.moveAttachment(att, false)
-                                                            attDragY = 0f
-                                                        } else if (attDragY < -30f) {
-                                                            viewModel.moveAttachment(att, true)
-                                                            attDragY = 0f
-                                                        }
-                                                    },
-                                                    onDragEnd = { attDragY = 0f }
-                                                )
-                                            }
-                                    )
-                                    Spacer(Modifier.width(4.dp))
-                                    Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        text = att.fileName,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clickable {
-                                                try {
-                                                    context.startActivity(
-                                                        Intent(Intent.ACTION_VIEW, Uri.parse(att.uriString)).apply {
-                                                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                        }
-                                                    )
-                                                } catch (_: Exception) {
-                                                    Toast.makeText(context, "Cannot open file", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                    )
-                                    IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteAttachment(att) }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Delete", modifier = Modifier.size(14.dp))
-                                    }
-                                }
-                            }
-                        }
-
                         // Checklist Items
                         if (checklist.isNotEmpty()) {
                             Text("Checklist:", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 32.dp, top = 4.dp))
@@ -886,7 +954,7 @@ fun TaskNodeView(
                             }
                         }
 
-                        // Detailed Action toolbar (Added dedicated Sync button)
+                        // Detailed Action toolbar
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -894,22 +962,26 @@ fun TaskNodeView(
                             horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Dedicated "Sync to Calendar" Button
+                            // Sync to Calendar Button with Toast feedback
                             IconButton(modifier = Modifier.size(28.dp), onClick = {
-                                viewModel.manualSyncTaskToCalendar(task.id) { success ->
-                                    Toast.makeText(
-                                        context,
-                                        if (success) "Synced task amendments to Calendar" else "Set a reminder date to enable calendar sync",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                viewModel.manualSyncTaskToCalendar(task.id) { feedback ->
+                                    Toast.makeText(context, feedback, Toast.LENGTH_SHORT).show()
                                 }
                             }) {
                                 Icon(
                                     Icons.Default.Sync,
-                                    contentDescription = "Sync Amendments to Calendar",
+                                    contentDescription = "Sync to Calendar",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
+                            }
+                            // Move to target task button
+                            IconButton(modifier = Modifier.size(28.dp), onClick = { onMoveToTarget(task) }) {
+                                Icon(Icons.Default.DriveFileMove, contentDescription = "Move to...", modifier = Modifier.size(17.dp))
+                            }
+                            // Copy to target task button
+                            IconButton(modifier = Modifier.size(28.dp), onClick = { onCopyToTarget(task) }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy to...", modifier = Modifier.size(17.dp))
                             }
                             IconButton(modifier = Modifier.size(28.dp), onClick = { showAddChecklistField = !showAddChecklistField }) {
                                 Icon(Icons.Default.Checklist, contentDescription = "Add Checklist", modifier = Modifier.size(17.dp))
@@ -940,11 +1012,70 @@ fun TaskNodeView(
                     viewMode = viewMode,
                     viewModel = viewModel,
                     onAddSubtask = onAddSubtask,
-                    onEditTask = onEditTask
+                    onEditTask = onEditTask,
+                    onMoveToTarget = onMoveToTarget,
+                    onCopyToTarget = onCopyToTarget
                 )
             }
         }
     }
+}
+
+// Dialog that allows selecting which task/subtask to Move or Copy into
+@Composable
+fun TaskDestinationDialog(
+    title: String,
+    currentTaskId: Long,
+    viewModel: TaskViewModel,
+    onDismiss: () -> Unit,
+    onSelectTarget: (Long?) -> Unit
+) {
+    var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(currentTaskId) {
+        scope.launch {
+            potentialParents = viewModel.getAllPotentialParents(currentTaskId)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 350.dp)
+            ) {
+                item {
+                    ListItem(
+                        headlineContent = { Text("★ Top Level (Main Task)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) },
+                        modifier = Modifier
+                            .clickable { onSelectTarget(null) }
+                            .padding(vertical = 4.dp)
+                    )
+                    HorizontalDivider()
+                }
+
+                items(potentialParents, key = { it.id }) { parentCandidate ->
+                    ListItem(
+                        headlineContent = { Text(parentCandidate.title) },
+                        supportingContent = {
+                            Text(if (parentCandidate.parentId == null) "Main Task" else "Subtask", style = MaterialTheme.typography.labelSmall)
+                        },
+                        modifier = Modifier
+                            .clickable { onSelectTarget(parentCandidate.id) }
+                            .padding(vertical = 2.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
