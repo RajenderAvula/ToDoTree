@@ -90,14 +90,17 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     suspend fun getTaskById(id: Long): TaskItem?
 
+    // Global Search across title, notes, contact name/phone/email, AND checklist items
     @Query("""
-        SELECT * FROM tasks 
-        WHERE title LIKE '%' || :query || '%' 
-           OR notes LIKE '%' || :query || '%'
-           OR contactName LIKE '%' || :query || '%' 
-           OR contactPhone LIKE '%' || :query || '%'
-           OR contactEmail LIKE '%' || :query || '%'
-        ORDER BY lastModifiedTimestamp DESC
+        SELECT DISTINCT t.* FROM tasks t
+        LEFT JOIN checklist_items c ON t.id = c.taskId
+        WHERE t.title LIKE '%' || :query || '%' 
+           OR t.notes LIKE '%' || :query || '%'
+           OR t.contactName LIKE '%' || :query || '%' 
+           OR t.contactPhone LIKE '%' || :query || '%'
+           OR t.contactEmail LIKE '%' || :query || '%'
+           OR c.text LIKE '%' || :query || '%'
+        ORDER BY t.lastModifiedTimestamp DESC
     """)
     fun searchTasks(query: String): Flow<List<TaskItem>>
 
@@ -116,6 +119,7 @@ interface TaskDao {
     @Query("DELETE FROM tasks")
     suspend fun clearAllTasks()
 
+    // Checklist operations
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     fun getChecklistForTask(taskId: Long): Flow<List<ChecklistItem>>
 
@@ -137,6 +141,7 @@ interface TaskDao {
     @Delete
     suspend fun deleteChecklistItem(item: ChecklistItem)
 
+    // Attachment operations
     @Query("SELECT * FROM task_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     fun getAttachmentsForTask(taskId: Long): Flow<List<TaskAttachment>>
 
