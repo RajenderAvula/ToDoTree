@@ -16,13 +16,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Uses Temurin 17.0.11 to prevent the 'Could not determine java version from 17.0.20' parser error
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17.0.11'
           cache: 'gradle'
+
+      # Fallback: Generates gradlew automatically if it was never committed to Git
+      - name: Ensure Gradle Wrapper Exists
+        run: |
+          if [ ! -f "gradlew" ]; then
+            echo "gradlew not found! Installing Gradle to generate wrapper..."
+            sudo apt-get update && sudo apt-get install -y gradle
+            gradle wrapper --gradle-version 8.7
+          fi
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
