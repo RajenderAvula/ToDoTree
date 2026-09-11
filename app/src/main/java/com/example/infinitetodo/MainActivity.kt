@@ -64,6 +64,41 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
     var showCreateDialogForParentId by remember { mutableStateOf<Long?>(null) }
     var taskToEdit by remember { mutableStateOf<TaskItem?>(null) }
     var isCreatingRootTask by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // Launchers for Backup and Restore
+    val createBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        uri?.let { destUri ->
+            context.contentResolver.openOutputStream(destUri)?.use { outStream ->
+                viewModel.backupToDevice(outStream) { success ->
+                    Toast.makeText(
+                        context,
+                        if (success) "Backup saved successfully!" else "Backup failed",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { sourceUri ->
+            context.contentResolver.openInputStream(sourceUri)?.use { inStream ->
+                viewModel.restoreBackup(inStream) { success ->
+                    Toast.makeText(
+                        context,
+                        if (success) "Backup restored successfully!" else "Restore failed",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
 
     val permissionsToRequest = remember {
         val list = mutableListOf(
@@ -89,7 +124,48 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Hierarchical Infinite Tasks") }
+                title = { Text("Hierarchical Infinite Tasks") },
+                actions = {
+                    IconButton(onClick = { showMenu = !showMenu }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Backup to Device (ZIP)") },
+                            leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
+                            onClick = {
+                                showMenu = false
+                                createBackupLauncher.launch("ToDoTree_Backup_${System.currentTimeMillis()}.zip")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Backup & Send via Email") },
+                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                            onClick = {
+                                showMenu = false
+                                viewModel.sendBackupViaMail { intent ->
+                                    if (intent != null) {
+                                        context.startActivity(Intent.createChooser(intent, "Send Backup via Email"))
+                                    } else {
+                                        Toast.makeText(context, "Failed to create email backup", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Restore from Device / Mail") },
+                            leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
+                            onClick = {
+                                showMenu = false
+                                restoreBackupLauncher.launch(arrayOf("application/zip", "*/*"))
+                            }
+                        )
+                    }
+                }
             )
         },
         floatingActionButton = {
@@ -178,7 +254,6 @@ fun TaskNodeView(
     var newChecklistText by remember { mutableStateOf("") }
     var showAddChecklistField by remember { mutableStateOf(false) }
 
-    // Gesture State for Sliding Dragging
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     val animatedOffsetX by animateFloatAsState(targetValue = offsetX, label = "slideX")
@@ -210,9 +285,7 @@ fun TaskNodeView(
             .fillMaxWidth()
             .padding(start = (depth * 14).dp)
     ) {
-        // Outer box containing slide gesture background indicator
         Box(modifier = Modifier.fillMaxWidth()) {
-            // Visual helper behind the sliding card indicating Indent / Outdent
             if (offsetX > 60f) {
                 Box(
                     modifier = Modifier
@@ -245,12 +318,10 @@ fun TaskNodeView(
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(modifier = Modifier.padding(6.dp)) {
-                    // Task Row with Drag Handle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Gesture sliding touch handle
                         Icon(
                             imageVector = Icons.Default.DragIndicator,
                             contentDescription = "Slide to Move",
@@ -264,7 +335,6 @@ fun TaskNodeView(
                                             offsetX += dragAmount.x
                                             offsetY += dragAmount.y
 
-                                            // Trigger vertical slide reordering
                                             if (offsetY > 40f) {
                                                 viewModel.moveTaskVertical(task, directionUp = false)
                                                 offsetY = 0f
@@ -274,7 +344,6 @@ fun TaskNodeView(
                                             }
                                         },
                                         onDragEnd = {
-                                            // Trigger hierarchy change on horizontal drag release
                                             if (offsetX > 120f) {
                                                 viewModel.indentTask(task)
                                             } else if (offsetX < -120f) {
@@ -366,7 +435,7 @@ fun TaskNodeView(
                         }
                     }
 
-                    // MOVABLE ATTACHMENTS (Drag handle sliding)
+                    // MOVABLE ATTACHMENTS
                     if (attachments.isNotEmpty()) {
                         Text(
                             "Attachments:",
@@ -432,7 +501,7 @@ fun TaskNodeView(
                         }
                     }
 
-                    // MOVABLE CHECKLIST (Drag handle sliding)
+                    // MOVABLE CHECKLIST
                     if (checklist.isNotEmpty()) {
                         Text(
                             "Checklist:",
@@ -543,7 +612,6 @@ fun TaskNodeView(
             }
         }
 
-        // Recursive subtree
         if (isExpanded) {
             subtasks.forEach { subtask ->
                 TaskNodeView(
