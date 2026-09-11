@@ -80,17 +80,26 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId IS :parentId ORDER BY orderIndex ASC, id ASC")
     suspend fun getSubtasksSnapshot(parentId: Long?): List<TaskItem>
 
+    @Query("SELECT * FROM tasks")
+    suspend fun getAllTasksSnapshot(): List<TaskItem>
+
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     suspend fun getTaskById(id: Long): TaskItem?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: TaskItem): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllTasks(tasks: List<TaskItem>): List<Long>
+
     @Update
     suspend fun updateTask(task: TaskItem)
 
     @Delete
     suspend fun deleteTask(task: TaskItem)
+
+    @Query("DELETE FROM tasks")
+    suspend fun clearAllTasks()
 
     // Checklist operations
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
@@ -99,8 +108,14 @@ interface TaskDao {
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
 
+    @Query("SELECT * FROM checklist_items")
+    suspend fun getAllChecklistSnapshot(): List<ChecklistItem>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItem(item: ChecklistItem): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllChecklistItems(items: List<ChecklistItem>)
 
     @Update
     suspend fun updateChecklistItem(item: ChecklistItem)
@@ -115,8 +130,14 @@ interface TaskDao {
     @Query("SELECT * FROM task_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getAttachmentsSnapshot(taskId: Long): List<TaskAttachment>
 
+    @Query("SELECT * FROM task_attachments")
+    suspend fun getAllAttachmentsSnapshot(): List<TaskAttachment>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttachment(attachment: TaskAttachment): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllAttachments(attachments: List<TaskAttachment>)
 
     @Update
     suspend fun updateAttachment(attachment: TaskAttachment)
