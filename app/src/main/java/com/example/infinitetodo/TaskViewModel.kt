@@ -13,17 +13,53 @@ import androidx.work.WorkManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.getDatabase(application).taskDao()
     private val workManager = WorkManager.getInstance(application)
+    private val backupRestoreManager = BackupRestoreManager(application)
 
     val rootTasks: Flow<List<TaskItem>> = dao.getRootTasks()
 
     fun getSubtasks(parentId: Long): Flow<List<TaskItem>> = dao.getSubtasks(parentId)
     fun getChecklist(taskId: Long): Flow<List<ChecklistItem>> = dao.getChecklistForTask(taskId)
     fun getAttachments(taskId: Long): Flow<List<TaskAttachment>> = dao.getAttachmentsForTask(taskId)
+
+    // BACKUP & RESTORE OPERATIONS
+    fun backupToDevice(destinationStream: OutputStream, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val success = backupRestoreManager.createZipBackup(dao, destinationStream)
+            onComplete(success)
+        }
+    }
+
+    fun sendBackupViaMail(onReady: (Intent?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val uri = backupRestoreManager.createMailAttachmentBackup(dao)
+            if (uri != null) {
+                val emailIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_SUBJECT, "ToDoTree Complete Backup with Attachments")
+                    putExtra(Intent.EXTRA_TEXT, "Attached is your ToDoTree complete backup containing tasks, checklists, attachments, and voice notes.")
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                onReady(emailIntent)
+            } else {
+                onReady(null)
+            }
+        }
+    }
+
+    fun restoreBackup(sourceStream: InputStream, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val success = backupRestoreManager.restoreFromZip(dao, sourceStream)
+            onComplete(success)
+        }
+    }
 
     fun addTask(
         title: String,
@@ -108,7 +144,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Sliding vertically to swap sibling position
     fun moveTaskVertical(task: TaskItem, directionUp: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             val siblings = dao.getSubtasksSnapshot(task.parentId).toMutableList()
@@ -125,44 +160,30 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // SLIDE RIGHT: Convert to Subtask (Indent)
     fun indentTask(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val siblings = dao.getSubtasksSnapshot(task.parentId)
             val currentIndex = siblings.indexOfFirst { it.id == task.id }
             if (currentIndex > 0) {
-                // Adopted by the preceding sibling
                 val newParent = siblings[currentIndex - 1]
                 val newSiblings = dao.getSubtasksSnapshot(newParent.id)
-                dao.updateTask(
-                    task.copy(
-                        parentId = newParent.id,
-                        orderIndex = newSiblings.size
-                    )
-                )
+                dao.updateTask(task.copy(parentId = newParent.id, orderIndex = newSiblings.size))
             }
         }
     }
 
-    // SLIDE LEFT: Convert Subtask to Main Task (Outdent)
     fun outdentTask(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (task.parentId == null) return@launch // Already a root/main task
+            if (task.parentId == null) return@launch
 
             val currentParent = dao.getTaskById(task.parentId)
-            val newGrandParentId = currentParent?.parentId // Can be null (promoted to root)
+            val newGrandParentId = currentParent?.parentId
             val newSiblings = dao.getSubtasksSnapshot(newGrandParentId)
 
-            dao.updateTask(
-                task.copy(
-                    parentId = newGrandParentId,
-                    orderIndex = newSiblings.size
-                )
-            )
+            dao.updateTask(task.copy(parentId = newGrandParentId, orderIndex = newSiblings.size))
         }
     }
 
-    // Checklist operations
     fun addChecklistItem(taskId: Long, text: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -196,7 +217,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Attachments operations
     fun addAttachment(taskId: Long, uri: Uri, name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
