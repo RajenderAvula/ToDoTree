@@ -85,11 +85,16 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             var calendarEventId = task.calendarEventId
+
             if (syncWithGoogleCalendar && reminderEpochMs != null) {
                 if (calendarEventId != null) {
                     CalendarHelper.deleteEvent(getApplication(), calendarEventId)
                 }
-                calendarEventId = syncCalendarEvent(newTitle, reminderEpochMs, newNotes)
+                val formattedTitle = if (task.isCompleted) "[DONE] ✓ $newTitle" else newTitle
+                calendarEventId = syncCalendarEvent(formattedTitle, reminderEpochMs, newNotes)
+            } else if (!syncWithGoogleCalendar && calendarEventId != null) {
+                CalendarHelper.deleteEvent(getApplication(), calendarEventId)
+                calendarEventId = null
             }
 
             val updatedTask = task.copy(
@@ -112,18 +117,97 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Direct update for inline expandable text notes
-    fun updateTaskNotes(task: TaskItem, newNotes: String) {
+    // REFLECT COMPLETION STATUS IN GOOGLE CALENDAR
+    fun toggleTaskCompletion(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
+            val newCompletionState = !task.isCompleted
             val now = System.currentTimeMillis()
-            dao.updateTask(task.copy(notes = newNotes, lastModifiedTimestamp = now))
+
+            // Update calendar event title & notes
+            task.calendarEventId?.let { eventId ->
+                val calendarTitle = if (newCompletionState) {
+                    "[DONE] ✓ ${task.title}"
+                } else {
+                    task.title.removePrefix("[DONE] ✓ ")
+                }
+                val statusNote = if (newCompletionState) {
+                    "Status: Completed\n${task.notes ?: ""}"
+                } else {
+                    task.notes ?: ""
+                }
+                CalendarHelper.updateEvent(getApplication(), eventId, calendarTitle, statusNote)
+            }
+
+            dao.updateTask(
+                task.copy(
+                    isCompleted = newCompletionState,
+                    lastModifiedTimestamp = now
+                )
+            )
         }
     }
 
-    fun toggleTaskCompletion(task: TaskItem) {
+    // REFLECT COPIED TASKS IN GOOGLE CALENDAR
+    fun duplicateTask(taskId: Long, targetParentId: Long?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val original = dao.getTaskById(taskId) ?: return@launch
+            deepCopyRecursive(original, targetParentId)
+        }
+    }
+
+    private suspend fun deepCopyRecursive(task: TaskItem, newParentId: Long?) {
+        val siblings = dao.getSubtasksSnapshot(newParentId)
+        val copyTitle = "${task.title} (Copy)"
+
+        // If the source task had a calendar event, create a dedicated new event for the clone
+        var newCalendarEventId: Long? = null
+        if (task.calendarEventId != null && task.reminderTimestamp != null) {
+            val titleForCalendar = if (task.isCompleted) "[DONE] ✓ $copyTitle" else copyTitle
+            newCalendarEventId = syncCalendarEvent(titleForCalendar, task.reminderTimestamp, task.notes)
+        }
+
+        val copy = task.copy(
+            id = 0L,
+            parentId = newParentId,
+            title = copyTitle,
+            calendarEventId = newCalendarEventId,
+            orderIndex = siblings.size,
+            createdTimestamp = System.currentTimeMillis(),
+            lastModifiedTimestamp = System.currentTimeMillis()
+        )
+        val newGeneratedId = dao.insertTask(copy)
+
+        if (task.reminderTimestamp != null && task.reminderTimestamp > System.currentTimeMillis()) {
+            scheduleReminder(newGeneratedId, copyTitle, task.reminderTimestamp)
+        }
+
+        // Duplicate checklist items
+        val checklists = dao.getChecklistSnapshot(task.id)
+        for (item in checklists) {
+            dao.insertChecklistItem(item.copy(id = 0L, taskId = newGeneratedId))
+        }
+
+        // Duplicate attachments
+        val attachments = dao.getAttachmentsSnapshot(task.id)
+        for (att in attachments) {
+            dao.insertAttachment(att.copy(id = 0L, taskId = newGeneratedId))
+        }
+
+        // Recursively clone child subtasks
+        val children = dao.getSubtasksSnapshot(task.id)
+        for (child in children) {
+            deepCopyRecursive(child, newGeneratedId)
+        }
+    }
+
+    fun updateTaskNotes(task: TaskItem, newNotes: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            dao.updateTask(task.copy(isCompleted = !task.isCompleted, lastModifiedTimestamp = now))
+            task.calendarEventId?.let { eventId ->
+                val calendarTitle = if (task.isCompleted) "[DONE] ✓ ${task.title}" else task.title
+                CalendarHelper.updateEvent(getApplication(), eventId, calendarTitle, newNotes)
+            }
+            dao.updateTask(task.copy(notes = newNotes, lastModifiedTimestamp = now))
         }
     }
 
