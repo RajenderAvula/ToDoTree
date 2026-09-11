@@ -19,10 +19,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -65,7 +64,8 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
         val list = mutableListOf(
             Manifest.permission.READ_CALENDAR,
             Manifest.permission.WRITE_CALENDAR,
-            Manifest.permission.READ_CONTACTS
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.RECORD_AUDIO
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             list.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -83,9 +83,7 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Hierarchical Infinite Tasks") }
-            )
+            TopAppBar(title = { Text("Hierarchical Infinite Tasks") })
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { isCreatingRootTask = true }) {
@@ -115,13 +113,12 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
                 titleHeader = "New Task",
                 initialTitle = "",
                 initialReminderMs = null,
-                initialUri = null,
-                initialFileName = null,
                 initialContactName = null,
                 initialContactPhone = null,
+                initialVoicePath = null,
                 onDismiss = { isCreatingRootTask = false },
-                onConfirm = { title, time, uri, name, syncCal, cName, cPhone ->
-                    viewModel.addTask(title, null, time, uri, name, syncCal, cName, cPhone)
+                onConfirm = { title, time, syncCal, cName, cPhone, voicePath ->
+                    viewModel.addTask(title, null, time, syncCal, cName, cPhone, voicePath)
                     isCreatingRootTask = false
                 }
             )
@@ -132,13 +129,12 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
                 titleHeader = "New Subtask",
                 initialTitle = "",
                 initialReminderMs = null,
-                initialUri = null,
-                initialFileName = null,
                 initialContactName = null,
                 initialContactPhone = null,
+                initialVoicePath = null,
                 onDismiss = { showCreateDialogForParentId = null },
-                onConfirm = { title, time, uri, name, syncCal, cName, cPhone ->
-                    viewModel.addTask(title, parentId, time, uri, name, syncCal, cName, cPhone)
+                onConfirm = { title, time, syncCal, cName, cPhone, voicePath ->
+                    viewModel.addTask(title, parentId, time, syncCal, cName, cPhone, voicePath)
                     showCreateDialogForParentId = null
                 }
             )
@@ -149,13 +145,12 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
                 titleHeader = "Edit Task",
                 initialTitle = task.title,
                 initialReminderMs = task.reminderTimestamp,
-                initialUri = task.attachmentUri?.let { Uri.parse(it) },
-                initialFileName = task.attachmentName,
                 initialContactName = task.contactName,
                 initialContactPhone = task.contactPhone,
+                initialVoicePath = task.voiceRecordingPath,
                 onDismiss = { taskToEdit = null },
-                onConfirm = { title, time, uri, name, syncCal, cName, cPhone ->
-                    viewModel.updateTask(task, title, time, uri, name, syncCal, cName, cPhone)
+                onConfirm = { title, time, syncCal, cName, cPhone, voicePath ->
+                    viewModel.updateTask(task, title, time, syncCal, cName, cPhone, voicePath)
                     taskToEdit = null
                 }
             )
@@ -172,8 +167,31 @@ fun TaskNodeView(
     onEditTask: (TaskItem) -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
+    var isPlayingVoice by remember { mutableStateOf(false) }
+    var newChecklistText by remember { mutableStateOf("") }
+    var showAddChecklistField by remember { mutableStateOf(false) }
+
     val subtasks by viewModel.getSubtasks(task.id).collectAsState(initial = emptyList())
+    val checklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
+    val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
+
     val context = LocalContext.current
+    val audioHelper = remember { AudioRecorderHelper(context) }
+
+    val attachmentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            var fileName = "Document"
+            context.contentResolver.query(it, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (cursor.moveToFirst() && nameIndex != -1) {
+                    fileName = cursor.getString(nameIndex)
+                }
+            }
+            viewModel.addAttachment(task.id, it, fileName)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -187,6 +205,7 @@ fun TaskNodeView(
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(6.dp)) {
+                // Header row: Expand, Complete, Title, and Slide Move Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -196,7 +215,7 @@ fun TaskNodeView(
                         onClick = { isExpanded = !isExpanded }
                     ) {
                         Icon(
-                            imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowRight,
+                            imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowRight,
                             contentDescription = "Expand/Collapse"
                         )
                     }
@@ -215,7 +234,6 @@ fun TaskNodeView(
                             .clickable { onEditTask(task) }
                     )
 
-                    // Reordering Sliding Controls (Up / Down)
                     IconButton(
                         modifier = Modifier.size(28.dp),
                         onClick = { viewModel.moveTask(task, directionUp = true) }
@@ -230,15 +248,38 @@ fun TaskNodeView(
                     }
                 }
 
-                // Metadata Details: Calling Chip, Attachment, and Alarms
+                // Voice Note player & Caller Chip
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 36.dp, bottom = 4.dp),
+                        .padding(start = 32.dp, bottom = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Contact phone calling chip
+                    task.voiceRecordingPath?.let { path ->
+                        Button(
+                            onClick = {
+                                if (isPlayingVoice) {
+                                    audioHelper.stopPlayback()
+                                    isPlayingVoice = false
+                                } else {
+                                    isPlayingVoice = true
+                                    audioHelper.playAudio(path) { isPlayingVoice = false }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Icon(
+                                if (isPlayingVoice) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = "Play Audio",
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (isPlayingVoice) "Stop" else "Voice Memo", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+
                     if (!task.contactPhone.isNullOrBlank()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -246,79 +287,149 @@ fun TaskNodeView(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(MaterialTheme.colorScheme.primaryContainer)
                                 .clickable {
-                                    val dialIntent = Intent(Intent.ACTION_DIAL).apply {
-                                        data = Uri.parse("tel:${task.contactPhone}")
-                                    }
-                                    context.startActivity(dialIntent)
+                                    context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${task.contactPhone}")))
                                 }
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
-                            Icon(Icons.Default.Call, contentDescription = "Call Contact", modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Icon(Icons.Default.Call, contentDescription = null, modifier = Modifier.size(12.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = "${task.contactName ?: "Call"}: ${task.contactPhone}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-
-                    // Attachment link
-                    task.attachmentUri?.let { uriStr ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable {
-                                    try {
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            data = Uri.parse(uriStr)
-                                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                        }
-                                        context.startActivity(intent)
-                                    } catch (_: Exception) {
-                                        Toast.makeText(context, "No app available to open file", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(Modifier.width(3.dp))
-                            Text(
-                                text = task.attachmentName ?: "File",
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-
-                    // Reminder
-                    task.reminderTimestamp?.let { epoch ->
-                        val dateStr = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(epoch))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Spacer(Modifier.width(3.dp))
-                            Text(text = dateStr, style = MaterialTheme.typography.bodySmall)
+                            Text("${task.contactName ?: "Call"}: ${task.contactPhone}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
 
-                // Quick Action Bar: Edit, Copy Subtree, Add Child, Delete
+                // MOVABLE ATTACHMENTS LIST
+                if (attachments.isNotEmpty()) {
+                    Text(
+                        "Attachments (Sliding):",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(start = 32.dp, top = 2.dp)
+                    )
+                    attachments.forEach { att ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 32.dp, top = 2.dp)
+                        ) {
+                            Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = att.fileName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        try {
+                                            context.startActivity(
+                                                Intent(Intent.ACTION_VIEW, Uri.parse(att.uriString)).apply {
+                                                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                                }
+                                            )
+                                        } catch (_: Exception) {
+                                            Toast.makeText(context, "Cannot open file", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                            )
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.moveAttachment(att, true) }) {
+                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Attachment Up", modifier = Modifier.size(14.dp))
+                            }
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.moveAttachment(att, false) }) {
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Attachment Down", modifier = Modifier.size(14.dp))
+                            }
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteAttachment(att) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Delete Attachment", modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
+
+                // MOVABLE CHECKLIST ITEMS
+                if (checklist.isNotEmpty()) {
+                    Text(
+                        "Checklist:",
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(start = 32.dp, top = 4.dp)
+                    )
+                    checklist.forEach { item ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 32.dp)
+                        ) {
+                            Checkbox(
+                                checked = item.isDone,
+                                onCheckedChange = { viewModel.toggleChecklistItem(item) },
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = item.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.moveChecklistItem(item, true) }) {
+                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Item Up", modifier = Modifier.size(14.dp))
+                            }
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.moveChecklistItem(item, false) }) {
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Item Down", modifier = Modifier.size(14.dp))
+                            }
+                            IconButton(modifier = Modifier.size(24.dp), onClick = { viewModel.deleteChecklistItem(item) }) {
+                                Icon(Icons.Default.Close, contentDescription = "Delete Item", modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
+
+                // Add checklist item inline field
+                if (showAddChecklistField) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 32.dp, top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newChecklistText,
+                            onValueChange = { newChecklistText = it },
+                            placeholder = { Text("New checklist item...") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = {
+                            if (newChecklistText.isNotBlank()) {
+                                viewModel.addChecklistItem(task.id, newChecklistText)
+                                newChecklistText = ""
+                                showAddChecklistField = false
+                            }
+                        }) {
+                            Icon(Icons.Default.Check, contentDescription = "Confirm item")
+                        }
+                    }
+                }
+
+                // Bottom actions: Add Checklist, Add Attachment, Add Subtask, Edit, Delete
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 36.dp),
+                        .padding(start = 28.dp, top = 4.dp),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(modifier = Modifier.size(28.dp), onClick = { onEditTask(task) }) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(17.dp))
+                    IconButton(modifier = Modifier.size(28.dp), onClick = { showAddChecklistField = !showAddChecklistField }) {
+                        Icon(Icons.Default.Checklist, contentDescription = "Add Checklist", modifier = Modifier.size(17.dp))
                     }
-                    IconButton(modifier = Modifier.size(28.dp), onClick = { viewModel.duplicateTask(task.id, task.parentId) }) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy Task", modifier = Modifier.size(17.dp))
+                    IconButton(modifier = Modifier.size(28.dp), onClick = { attachmentPickerLauncher.launch(arrayOf("*/*")) }) {
+                        Icon(Icons.Default.AttachFile, contentDescription = "Add Attachment", modifier = Modifier.size(17.dp))
                     }
                     IconButton(modifier = Modifier.size(28.dp), onClick = { onAddSubtask(task.id) }) {
-                        Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Child", modifier = Modifier.size(17.dp))
+                        Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(17.dp))
+                    }
+                    IconButton(modifier = Modifier.size(28.dp), onClick = { onEditTask(task) }) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(17.dp))
                     }
                     IconButton(modifier = Modifier.size(28.dp), onClick = { viewModel.deleteTask(task) }) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(17.dp))
@@ -327,7 +438,7 @@ fun TaskNodeView(
             }
         }
 
-        // Recursive subtree invocation
+        // Recursive subtree
         if (isExpanded) {
             subtasks.forEach { subtask ->
                 TaskNodeView(
@@ -347,31 +458,30 @@ fun TaskEditorDialog(
     titleHeader: String,
     initialTitle: String,
     initialReminderMs: Long?,
-    initialUri: Uri?,
-    initialFileName: String?,
     initialContactName: String?,
     initialContactPhone: String?,
+    initialVoicePath: String?,
     onDismiss: () -> Unit,
     onConfirm: (
         title: String,
         reminderMs: Long?,
-        fileUri: Uri?,
-        fileName: String?,
         syncWithGoogleCalendar: Boolean,
         contactName: String?,
-        contactPhone: String?
+        contactPhone: String?,
+        voicePath: String?
     ) -> Unit
 ) {
     var title by remember { mutableStateOf(initialTitle) }
     var reminderMs by remember { mutableStateOf(initialReminderMs) }
-    var selectedUri by remember { mutableStateOf(initialUri) }
-    var selectedFileName by remember { mutableStateOf(initialFileName) }
     var contactName by remember { mutableStateOf(initialContactName) }
     var contactPhone by remember { mutableStateOf(initialContactPhone) }
+    var voicePath by remember { mutableStateOf(initialVoicePath) }
     var syncCalendar by remember { mutableStateOf(true) }
-    val context = LocalContext.current
+    var isRecording by remember { mutableStateOf(false) }
 
-    // Contact picker launcher
+    val context = LocalContext.current
+    val audioHelper = remember { AudioRecorderHelper(context) }
+
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact()
     ) { contactUri: Uri? ->
@@ -384,9 +494,7 @@ fun TaskEditorDialog(
 
                     val contactId = cursor.getString(idCol)
                     contactName = cursor.getString(nameCol)
-                    val hasPhone = cursor.getInt(hasPhoneCol)
-
-                    if (hasPhone > 0) {
+                    if (cursor.getInt(hasPhoneCol) > 0) {
                         context.contentResolver.query(
                             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                             null,
@@ -405,21 +513,6 @@ fun TaskEditorDialog(
         }
     }
 
-    // File picker launcher
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        selectedUri = uri
-        uri?.let {
-            context.contentResolver.query(it, null, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && nameIndex != -1) {
-                    selectedFileName = cursor.getString(nameIndex)
-                }
-            }
-        }
-    }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(titleHeader) },
@@ -433,7 +526,32 @@ fun TaskEditorDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Contact Picker Button
+                // Voice Recorder Control
+                OutlinedButton(
+                    onClick = {
+                        if (isRecording) {
+                            voicePath = audioHelper.stopRecording()
+                            isRecording = false
+                        } else {
+                            voicePath = audioHelper.startRecording()
+                            isRecording = true
+                        }
+                    },
+                    colors = if (isRecording) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.errorContainer) else ButtonDefaults.outlinedButtonColors(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(if (isRecording) Icons.Default.Stop else Icons.Default.Mic, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        when {
+                            isRecording -> "Recording... (Tap to Stop)"
+                            voicePath != null -> "Voice Memo Attached (Record Again)"
+                            else -> "Record Voice Memo"
+                        }
+                    )
+                }
+
+                // Contact Picker
                 OutlinedButton(
                     onClick = { contactPickerLauncher.launch(null) },
                     modifier = Modifier.fillMaxWidth()
@@ -483,16 +601,6 @@ fun TaskEditorDialog(
                     )
                 }
 
-                // File Attachment (SAF)
-                OutlinedButton(
-                    onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.AttachFile, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(text = selectedFileName ?: "Attach File")
-                }
-
                 if (reminderMs != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -509,14 +617,20 @@ fun TaskEditorDialog(
             Button(
                 enabled = title.isNotBlank(),
                 onClick = {
-                    onConfirm(title, reminderMs, selectedUri, selectedFileName, syncCalendar, contactName, contactPhone)
+                    if (isRecording) {
+                        voicePath = audioHelper.stopRecording()
+                    }
+                    onConfirm(title, reminderMs, syncCalendar, contactName, contactPhone, voicePath)
                 }
             ) {
                 Text("Save")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = {
+                if (isRecording) audioHelper.stopRecording()
+                onDismiss()
+            }) { Text("Cancel") }
         }
     )
 }
