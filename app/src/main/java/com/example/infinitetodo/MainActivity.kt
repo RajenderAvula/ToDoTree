@@ -87,6 +87,11 @@ fun InfiniteTodoApp(
     onViewModeChange: (TaskViewMode) -> Unit
 ) {
     val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
+
+    val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
+
     var showCreateDialogForParentId by remember { mutableStateOf<Long?>(null) }
     var taskToEdit by remember { mutableStateOf<TaskItem?>(null) }
     var isCreatingRootTask by remember { mutableStateOf(false) }
@@ -94,7 +99,6 @@ fun InfiniteTodoApp(
     var showThemeDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // Launchers for Backup and Restore
     val createBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
     ) { uri: Uri? ->
@@ -150,66 +154,90 @@ fun InfiniteTodoApp(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Hierarchical Infinite Tasks") },
-                actions = {
-                    // Quick View Mode Toggle (Compact vs Detailed)
-                    IconButton(onClick = {
-                        val nextMode = if (viewMode == TaskViewMode.DETAILED) TaskViewMode.COMPACT else TaskViewMode.DETAILED
-                        onViewModeChange(nextMode)
-                    }) {
-                        Icon(
-                            imageVector = if (viewMode == TaskViewMode.DETAILED) Icons.Default.ViewAgenda else Icons.Default.ViewHeadline,
-                            contentDescription = "Switch View Style"
+            if (isSearchActive) {
+                TopAppBar(
+                    title = {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search tasks, contacts...") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
                         )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Close Search")
+                        }
                     }
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Hierarchical Infinite Tasks") },
+                    actions = {
+                        IconButton(onClick = { isSearchActive = true }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search Tasks")
+                        }
 
-                    // Theme selector button
-                    IconButton(onClick = { showThemeDialog = true }) {
-                        Icon(Icons.Default.Palette, contentDescription = "Themes")
-                    }
+                        IconButton(onClick = {
+                            val nextMode = if (viewMode == TaskViewMode.DETAILED) TaskViewMode.COMPACT else TaskViewMode.DETAILED
+                            onViewModeChange(nextMode)
+                        }) {
+                            Icon(
+                                imageVector = if (viewMode == TaskViewMode.DETAILED) Icons.Default.ViewAgenda else Icons.Default.ViewHeadline,
+                                contentDescription = "Switch View Style"
+                            )
+                        }
 
-                    IconButton(onClick = { showMenu = !showMenu }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
-                    }
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Backup to Device (ZIP)") },
-                            leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                createBackupLauncher.launch("ToDoTree_Backup_${System.currentTimeMillis()}.zip")
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Backup & Send via Email") },
-                            leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                viewModel.sendBackupViaMail { intent ->
-                                    if (intent != null) {
-                                        context.startActivity(Intent.createChooser(intent, "Send Backup via Email"))
-                                    } else {
-                                        Toast.makeText(context, "Failed to create email backup", Toast.LENGTH_SHORT).show()
+                        IconButton(onClick = { showThemeDialog = true }) {
+                            Icon(Icons.Default.Palette, contentDescription = "Themes")
+                        }
+
+                        IconButton(onClick = { showMenu = !showMenu }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Backup to Device (ZIP)") },
+                                leadingIcon = { Icon(Icons.Default.Save, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    createBackupLauncher.launch("ToDoTree_Backup_${System.currentTimeMillis()}.zip")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Backup & Send via Email") },
+                                leadingIcon = { Icon(Icons.Default.Email, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    viewModel.sendBackupViaMail { intent ->
+                                        if (intent != null) {
+                                            context.startActivity(Intent.createChooser(intent, "Send Backup via Email"))
+                                        } else {
+                                            Toast.makeText(context, "Failed to create email backup", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 }
-                            }
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Restore from Device / Mail") },
-                            leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
-                            onClick = {
-                                showMenu = false
-                                restoreBackupLauncher.launch(arrayOf("application/zip", "*/*"))
-                            }
-                        )
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Restore from Device / Mail") },
+                                leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
+                                onClick = {
+                                    showMenu = false
+                                    restoreBackupLauncher.launch(arrayOf("application/zip", "*/*"))
+                                }
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { isCreatingRootTask = true }) {
@@ -223,19 +251,38 @@ fun InfiniteTodoApp(
                 .padding(paddingValues)
                 .padding(horizontal = 6.dp, vertical = 4.dp)
         ) {
-            items(rootTasks, key = { it.id }) { rootTask ->
-                TaskNodeView(
-                    task = rootTask,
-                    depth = 0,
-                    viewMode = viewMode,
-                    viewModel = viewModel,
-                    onAddSubtask = { parentId -> showCreateDialogForParentId = parentId },
-                    onEditTask = { taskToEdit = it }
-                )
+            if (isSearchActive && searchQuery.isNotBlank()) {
+                item {
+                    Text(
+                        "Found ${searchResults.size} matching task(s):",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
+                    )
+                }
+                items(searchResults, key = { it.id }) { task ->
+                    TaskNodeView(
+                        task = task,
+                        depth = 0,
+                        viewMode = viewMode,
+                        viewModel = viewModel,
+                        onAddSubtask = { parentId -> showCreateDialogForParentId = parentId },
+                        onEditTask = { taskToEdit = it }
+                    )
+                }
+            } else {
+                items(rootTasks, key = { it.id }) { rootTask ->
+                    TaskNodeView(
+                        task = rootTask,
+                        depth = 0,
+                        viewMode = viewMode,
+                        viewModel = viewModel,
+                        onAddSubtask = { parentId -> showCreateDialogForParentId = parentId },
+                        onEditTask = { taskToEdit = it }
+                    )
+                }
             }
         }
 
-        // Theme Selector Modal Dialog
         if (showThemeDialog) {
             AlertDialog(
                 onDismissRequest = { showThemeDialog = false },
@@ -357,6 +404,8 @@ fun TaskNodeView(
 
     val context = LocalContext.current
     val audioHelper = remember { AudioRecorderHelper(context) }
+
+    val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     val attachmentPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -487,8 +536,29 @@ fun TaskNodeView(
                         }
                     }
 
-                    // Detailed metadata section (Voice note, call shortcut, attachments, checklist)
+                    // Detailed metadata section with date/time audit logs
                     if (viewMode == TaskViewMode.DETAILED) {
+                        // Date/Time audit row (Created & Modified)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 32.dp, bottom = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Created: ${dateFormat.format(Date(task.createdTimestamp))}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            Text("•", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                            Text(
+                                text = "Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -716,7 +786,6 @@ fun TaskNodeView(
             }
         }
 
-        // Recursive subtree
         if (isExpanded) {
             subtasks.forEach { subtask ->
                 TaskNodeView(
