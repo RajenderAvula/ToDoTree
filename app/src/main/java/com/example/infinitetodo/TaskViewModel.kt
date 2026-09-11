@@ -14,6 +14,7 @@ import androidx.work.WorkManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
@@ -30,92 +31,159 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     fun getChecklist(taskId: Long): Flow<List<ChecklistItem>> = dao.getChecklistForTask(taskId)
     fun getAttachments(taskId: Long): Flow<List<TaskAttachment>> = dao.getAttachmentsForTask(taskId)
 
-    // Formats and updates Calendar event title, description, start/end time, AND attachments
-    private suspend fun syncTaskToCalendar(task: TaskItem) {
-        val eventId = task.calendarEventId ?: return
-
-        val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
-
-        val hierarchyPrefix = if (parentTask != null) {
-            "[Subtask of '${parentTask.title}'] "
-        } else {
-            "[Main Task] "
-        }
-
-        val baseCleanTitle = task.title
-            .removePrefix("[DONE] ✓ ")
-            .replace(Regex("^\\[(Main Task|Subtask of '[^']+')\\]\\s*"), "")
-
-        val fullCalendarTitle = if (task.isCompleted) {
-            "[DONE] ✓ $hierarchyPrefix$baseCleanTitle"
-        } else {
-            "$hierarchyPrefix$baseCleanTitle"
-        }
-
-        val hierarchyLine = if (parentTask != null) {
-            "Hierarchy: Subtask under '${parentTask.title}'"
-        } else {
-            "Hierarchy: Top-level Main Task"
-        }
-        val statusLine = "Status: ${if (task.isCompleted) "Completed ✓" else "Pending"}"
-        val userNotes = task.notes ?: ""
-
-        // Gather latest ordered attachments
-        val attachments = dao.getAttachmentsSnapshot(task.id)
-        val attachmentSummary = if (attachments.isNotEmpty()) {
-            "\n\nAttachments (${attachments.size}):\n" + attachments.mapIndexed { idx, att ->
-                "${idx + 1}. ${att.fileName}"
-            }.joinToString("\n")
-        } else {
-            "\n\nAttachments: None"
-        }
-
-        val fullDescription = "$statusLine\n$hierarchyLine\n\nNotes:\n$userNotes$attachmentSummary".trim()
-
-        CalendarHelper.updateEvent(
-            context = getApplication(),
-            eventId = eventId,
-            title = fullCalendarTitle,
-            notes = fullDescription,
-            startTimeMs = task.reminderTimestamp
-        )
+    suspend fun getAllPotentialParents(excludeTaskId: Long): List<TaskItem> {
+        val all = dao.getAllTasksSnapshot()
+        // Prevent moving a task into itself or its direct descendants
+        return all.filter { it.id != excludeTaskId }
     }
 
-    // Manual single-task sync button trigger
-    fun manualSyncTaskToCalendar(taskId: Long, onDone: (Boolean) -> Unit) {
+    // Move task to a specific parent (or null for root main task)
+    fun moveTaskToTarget(task: TaskItem, newParentId: Long?) {
         viewModelScope.launch(Dispatchers.IO) {
-            val task = dao.getTaskById(taskId)
-            if (task == null) {
-                onDone(false)
+            val siblings = dao.getSubtasksSnapshot(newParentId)
+            val updated = task.copy(
+                parentId = newParentId,
+                orderIndex = siblings.size,
+                lastModifiedTimestamp = System.currentTimeMillis()
+            )
+            dao.updateTask(updated)
+            syncTaskToCalendar(updated)
+        }
+    }
+
+    // Copy task to a specific parent (or null for root main task)
+    fun copyTaskToTarget(taskId: Long, targetParentId: Long?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val original = dao.getTaskById(taskId) ?: return@launch
+            deepCopyRecursive(original, targetParentId)
+        }
+    }
+
+    // Formats and updates Calendar event title, description, start/end time, AND attachments
+    private suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
+        val eventId = task.calendarEventId ?: return false
+
+        val hasPermission = ContextCompat.checkSelfPermission(
+            getApplication(),
+            android.Manifest.permission.WRITE_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasPermission) return false
+
+        return try {
+            val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
+
+            val hierarchyPrefix = if (parentTask != null) {
+                "[Subtask of '${parentTask.title}'] "
+            } else {
+                "[Main Task] "
+            }
+
+            val baseCleanTitle = task.title
+                .removePrefix("[DONE] ✓ ")
+                .replace(Regex("^\\[(Main Task|Subtask of '[^']+')\\]\\s*"), "")
+
+            val fullCalendarTitle = if (task.isCompleted) {
+                "[DONE] ✓ $hierarchyPrefix$baseCleanTitle"
+            } else {
+                "$hierarchyPrefix$baseCleanTitle"
+            }
+
+            val hierarchyLine = if (parentTask != null) {
+                "Hierarchy: Subtask under '${parentTask.title}'"
+            } else {
+                "Hierarchy: Top-level Main Task"
+            }
+            val statusLine = "Status: ${if (task.isCompleted) "Completed ✓" else "Pending"}"
+            val userNotes = task.notes ?: ""
+
+            val attachments = dao.getAttachmentsSnapshot(task.id)
+            val attachmentSummary = if (attachments.isNotEmpty()) {
+                "\n\nAttachments (${attachments.size}):\n" + attachments.mapIndexed { idx, att ->
+                    "${idx + 1}. ${att.fileName}"
+                }.joinToString("\n")
+            } else {
+                "\n\nAttachments: None"
+            }
+
+            val fullDescription = "$statusLine\n$hierarchyLine\n\nNotes:\n$userNotes$attachmentSummary".trim()
+
+            CalendarHelper.updateEvent(
+                context = getApplication(),
+                eventId = eventId,
+                title = fullCalendarTitle,
+                notes = fullDescription,
+                startTimeMs = task.reminderTimestamp
+            )
+            true
+        } catch (e: Exception) {
+            Log.e("CalendarSync", "Error updating event", e)
+            false
+        }
+    }
+
+    // Manual single-task sync button with crash protection & feedback string
+    fun manualSyncTaskToCalendar(taskId: Long, onResult: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                getApplication(),
+                android.Manifest.permission.WRITE_CALENDAR
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!hasPermission) {
+                withContext(Dispatchers.Main) {
+                    onResult("Calendar permission not granted")
+                }
                 return@launch
             }
 
-            if (task.calendarEventId != null) {
-                syncTaskToCalendar(task)
-                onDone(true)
-            } else if (task.reminderTimestamp != null) {
-                // If never synced before but has a reminder date/time, register an event now
-                val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
-                val prefix = if (parentTask != null) "[Subtask of '${parentTask.title}'] " else "[Main Task] "
-                val calTitle = if (task.isCompleted) "[DONE] ✓ $prefix${task.title}" else "$prefix${task.title}"
+            val task = dao.getTaskById(taskId)
+            if (task == null) {
+                withContext(Dispatchers.Main) { onResult("Task not found") }
+                return@launch
+            }
 
-                val attachments = dao.getAttachmentsSnapshot(task.id)
-                val attSummary = if (attachments.isNotEmpty()) {
-                    "\n\nAttachments:\n" + attachments.mapIndexed { i, a -> "${i + 1}. ${a.fileName}" }.joinToString("\n")
-                } else ""
-                val calDesc = "Status: ${if (task.isCompleted) "Completed ✓" else "Pending"}\nNotes:\n${task.notes ?: ""}$attSummary".trim()
-
-                val newCalId = syncCalendarEvent(calTitle, task.reminderTimestamp, calDesc)
-                if (newCalId != null) {
-                    val updated = task.copy(calendarEventId = newCalId)
-                    dao.updateTask(updated)
-                    syncTaskToCalendar(updated)
-                    onDone(true)
-                } else {
-                    onDone(false)
+            if (task.reminderTimestamp == null) {
+                withContext(Dispatchers.Main) {
+                    onResult("Set a reminder date/time first to sync to Calendar")
                 }
-            } else {
-                onDone(false)
+                return@launch
+            }
+
+            try {
+                if (task.calendarEventId != null) {
+                    val ok = syncTaskToCalendar(task)
+                    withContext(Dispatchers.Main) {
+                        onResult(if (ok) "Synced '${task.title}' to Calendar ✓" else "Could not update Calendar event")
+                    }
+                } else {
+                    val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
+                    val prefix = if (parentTask != null) "[Subtask of '${parentTask.title}'] " else "[Main Task] "
+                    val calTitle = if (task.isCompleted) "[DONE] ✓ $prefix${task.title}" else "$prefix${task.title}"
+
+                    val attachments = dao.getAttachmentsSnapshot(task.id)
+                    val attSummary = if (attachments.isNotEmpty()) {
+                        "\n\nAttachments:\n" + attachments.mapIndexed { i, a -> "${i + 1}. ${a.fileName}" }.joinToString("\n")
+                    } else ""
+                    val calDesc = "Status: ${if (task.isCompleted) "Completed ✓" else "Pending"}\nNotes:\n${task.notes ?: ""}$attSummary".trim()
+
+                    val newCalId = syncCalendarEvent(calTitle, task.reminderTimestamp, calDesc)
+                    if (newCalId != null) {
+                        val updated = task.copy(calendarEventId = newCalId)
+                        dao.updateTask(updated)
+                        withContext(Dispatchers.Main) {
+                            onResult("Created new Calendar event for '${task.title}' ✓")
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            onResult("Failed to create Calendar event")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("CalendarSync", "Sync failed", e)
+                withContext(Dispatchers.Main) {
+                    onResult("Sync failed: ${e.localizedMessage ?: "Unknown error"}")
+                }
             }
         }
     }
@@ -123,23 +191,33 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     // Bulk sync button trigger for all tasks
     fun syncAllTasksToCalendar(onDone: (Int) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                getApplication(),
+                android.Manifest.permission.WRITE_CALENDAR
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasPermission) {
+                withContext(Dispatchers.Main) { onDone(-1) }
+                return@launch
+            }
+
             val allTasks = dao.getAllTasksSnapshot()
             var count = 0
             for (task in allTasks) {
-                if (task.calendarEventId != null) {
-                    syncTaskToCalendar(task)
-                    count++
-                } else if (task.reminderTimestamp != null) {
-                    val newCalId = syncCalendarEvent(task.title, task.reminderTimestamp, task.notes)
-                    if (newCalId != null) {
-                        val updated = task.copy(calendarEventId = newCalId)
-                        dao.updateTask(updated)
-                        syncTaskToCalendar(updated)
-                        count++
+                try {
+                    if (task.calendarEventId != null) {
+                        if (syncTaskToCalendar(task)) count++
+                    } else if (task.reminderTimestamp != null) {
+                        val newCalId = syncCalendarEvent(task.title, task.reminderTimestamp, task.notes)
+                        if (newCalId != null) {
+                            val updated = task.copy(calendarEventId = newCalId)
+                            dao.updateTask(updated)
+                            syncTaskToCalendar(updated)
+                            count++
+                        }
                     }
-                }
+                } catch (_: Exception) {}
             }
-            onDone(count)
+            withContext(Dispatchers.Main) { onDone(count) }
         }
     }
 
@@ -448,7 +526,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ATTACHMENT MUTATIONS: Updates Room & pushes new attachment list directly to Google Calendar
     fun addAttachment(taskId: Long, uri: Uri, name: String) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
