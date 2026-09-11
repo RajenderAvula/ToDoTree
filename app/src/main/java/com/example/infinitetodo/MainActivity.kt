@@ -18,8 +18,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowRight
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowRight
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SubdirectoryArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -55,7 +60,6 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
     var showCreateDialogForParentId by remember { mutableStateOf<Long?>(null) }
     var isCreatingRootTask by remember { mutableStateOf(false) }
 
-    // Request Calendar and Notification runtime permissions
     val permissionsToRequest = remember {
         val list = mutableListOf(
             Manifest.permission.READ_CALENDAR,
@@ -69,7 +73,7 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { /* Permissions evaluated dynamically */ }
+    ) { }
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(permissionsToRequest)
@@ -78,11 +82,7 @@ fun InfiniteTodoApp(viewModel: TaskViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Hierarchical Infinite Tasks") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                title = { Text("Hierarchical Infinite Tasks") }
             )
         },
         floatingActionButton = {
@@ -159,7 +159,7 @@ fun TaskNodeView(
             ) {
                 IconButton(onClick = { isExpanded = !isExpanded }) {
                     Icon(
-                        imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowRight,
+                        imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowRight,
                         contentDescription = "Expand/Collapse"
                     )
                 }
@@ -176,7 +176,6 @@ fun TaskNodeView(
                         textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
                     )
 
-                    // File Attachment viewer chip
                     task.attachmentUri?.let { uriStr ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -190,7 +189,7 @@ fun TaskNodeView(
                                         }
                                         context.startActivity(intent)
                                     } catch (_: Exception) {
-                                        Toast.makeText(context, "No app available to open this file", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "No app found to open file", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                         ) {
@@ -204,7 +203,6 @@ fun TaskNodeView(
                         }
                     }
 
-                    // Scheduled Reminder & Google Calendar Indicator
                     if (task.reminderTimestamp != null || task.calendarEventId != null) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                             task.reminderTimestamp?.let { epoch ->
@@ -215,15 +213,8 @@ fun TaskNodeView(
                             }
                             if (task.calendarEventId != null) {
                                 Spacer(Modifier.width(8.dp))
-                                Icon(
-                                    Icons.Default.EventAvailable,
-                                    contentDescription = "Synced to Google Calendar",
-                                    tint = MaterialTheme.colorScheme.tertiary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(Modifier.width(2.dp))
                                 Text(
-                                    text = "Google Cal",
+                                    text = "• Google Calendar",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.tertiary
                                 )
@@ -233,7 +224,7 @@ fun TaskNodeView(
                 }
 
                 IconButton(onClick = { onAddSubtask(task.id) }) {
-                    Icon(Icons.Default.AddSubdirectoryArrowRight, contentDescription = "Add Subtask")
+                    Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask")
                 }
 
                 IconButton(onClick = { viewModel.deleteTask(task) }) {
@@ -246,7 +237,6 @@ fun TaskNodeView(
             }
         }
 
-        // Recursive child branch rendering
         if (isExpanded) {
             subtasks.forEach { subtask ->
                 TaskNodeView(
@@ -305,7 +295,6 @@ fun CreateTaskDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Date & Time Picker
                 OutlinedButton(
                     onClick = {
                         val calendar = Calendar.getInstance()
@@ -339,7 +328,6 @@ fun CreateTaskDialog(
                     )
                 }
 
-                // File Attachment (SAF)
                 OutlinedButton(
                     onClick = { filePickerLauncher.launch(arrayOf("*/*")) },
                     modifier = Modifier.fillMaxWidth()
@@ -349,7 +337,6 @@ fun CreateTaskDialog(
                     Text(text = selectedFileName ?: "Attach File")
                 }
 
-                // Google Calendar Option B Sync Toggle
                 if (reminderMs != null) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -375,4 +362,3 @@ fun CreateTaskDialog(
         }
     )
 }
-
