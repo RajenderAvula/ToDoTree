@@ -24,16 +24,25 @@ data class TaskItem(
     val reminderTimestamp: Long? = null,
     val attachmentUri: String? = null,
     val attachmentName: String? = null,
-    val calendarEventId: Long? = null
+    val calendarEventId: Long? = null,
+    val contactName: String? = null,
+    val contactPhone: String? = null,
+    val orderIndex: Int = 0
 )
 
 @Dao
 interface TaskDao {
-    @Query("SELECT * FROM tasks WHERE parentId IS NULL ORDER BY id DESC")
+    @Query("SELECT * FROM tasks WHERE parentId IS NULL ORDER BY orderIndex ASC, id ASC")
     fun getRootTasks(): Flow<List<TaskItem>>
 
-    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY id ASC")
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY orderIndex ASC, id ASC")
     fun getSubtasks(parentId: Long): Flow<List<TaskItem>>
+
+    @Query("SELECT * FROM tasks WHERE parentId IS :parentId ORDER BY orderIndex ASC, id ASC")
+    suspend fun getSubtasksSnapshot(parentId: Long?): List<TaskItem>
+
+    @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
+    suspend fun getTaskById(id: Long): TaskItem?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: TaskItem): Long
@@ -45,7 +54,7 @@ interface TaskDao {
     suspend fun deleteTask(task: TaskItem)
 }
 
-@Database(entities = [TaskItem::class], version = 1, exportSchema = false)
+@Database(entities = [TaskItem::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
 
@@ -59,11 +68,12 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "infinite_todo.db"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }
         }
     }
 }
-
