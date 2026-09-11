@@ -22,23 +22,22 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     val rootTasks: Flow<List<TaskItem>> = dao.getRootTasks()
 
     fun getSubtasks(parentId: Long): Flow<List<TaskItem>> = dao.getSubtasks(parentId)
+    fun getChecklist(taskId: Long): Flow<List<ChecklistItem>> = dao.getChecklistForTask(taskId)
+    fun getAttachments(taskId: Long): Flow<List<TaskAttachment>> = dao.getAttachmentsForTask(taskId)
 
     fun addTask(
         title: String,
         parentId: Long? = null,
         reminderEpochMs: Long? = null,
-        attachmentUri: Uri? = null,
-        attachmentName: String? = null,
         syncWithGoogleCalendar: Boolean = false,
         contactName: String? = null,
-        contactPhone: String? = null
+        contactPhone: String? = null,
+        voicePath: String? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            persistUriPermission(attachmentUri)
-
             var googleCalendarEventId: Long? = null
             if (syncWithGoogleCalendar && reminderEpochMs != null) {
-                googleCalendarEventId = syncCalendarEvent(title, reminderEpochMs, attachmentName)
+                googleCalendarEventId = syncCalendarEvent(title, reminderEpochMs)
             }
 
             val siblings = dao.getSubtasksSnapshot(parentId)
@@ -46,11 +45,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 parentId = parentId,
                 title = title,
                 reminderTimestamp = reminderEpochMs,
-                attachmentUri = attachmentUri?.toString(),
-                attachmentName = attachmentName,
                 calendarEventId = googleCalendarEventId,
                 contactName = contactName,
                 contactPhone = contactPhone,
+                voiceRecordingPath = voicePath,
                 orderIndex = siblings.size
             )
             val generatedId = dao.insertTask(newTask)
@@ -65,31 +63,27 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         task: TaskItem,
         newTitle: String,
         reminderEpochMs: Long?,
-        attachmentUri: Uri?,
-        attachmentName: String?,
         syncWithGoogleCalendar: Boolean,
         contactName: String?,
-        contactPhone: String?
+        contactPhone: String?,
+        voicePath: String?
     ) {
         viewModelScope.launch(Dispatchers.IO) {
-            persistUriPermission(attachmentUri)
-
             var calendarEventId = task.calendarEventId
             if (syncWithGoogleCalendar && reminderEpochMs != null) {
                 if (calendarEventId != null) {
                     CalendarHelper.deleteEvent(getApplication(), calendarEventId)
                 }
-                calendarEventId = syncCalendarEvent(newTitle, reminderEpochMs, attachmentName)
+                calendarEventId = syncCalendarEvent(newTitle, reminderEpochMs)
             }
 
             val updatedTask = task.copy(
                 title = newTitle,
                 reminderTimestamp = reminderEpochMs,
-                attachmentUri = attachmentUri?.toString() ?: task.attachmentUri,
-                attachmentName = attachmentName ?: task.attachmentName,
                 calendarEventId = calendarEventId,
                 contactName = contactName,
-                contactPhone = contactPhone
+                contactPhone = contactPhone,
+                voiceRecordingPath = voicePath ?: task.voiceRecordingPath
             )
             dao.updateTask(updatedTask)
 
@@ -110,13 +104,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.deleteTask(task)
             workManager.cancelAllWorkByTag("TASK_${task.id}")
-            task.calendarEventId?.let { calEventId ->
-                CalendarHelper.deleteEvent(getApplication(), calEventId)
-            }
+            task.calendarEventId?.let { CalendarHelper.deleteEvent(getApplication(), it) }
         }
     }
 
-    // Reordering sliding tasks up and down
     fun moveTask(task: TaskItem, directionUp: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             val siblings = dao.getSubtasksSnapshot(task.parentId).toMutableList()
@@ -127,50 +118,89 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             if (targetIndex in siblings.indices) {
                 val currentTask = siblings[currentIndex]
                 val swapTask = siblings[targetIndex]
-
                 dao.updateTask(currentTask.copy(orderIndex = targetIndex))
                 dao.updateTask(swapTask.copy(orderIndex = currentIndex))
             }
         }
     }
 
-    // Deep duplicate a task and all recursive child subtasks
-    fun duplicateTask(taskId: Long, targetParentId: Long?) {
+    // CHECKLIST ACTIONS & SLIDING
+    fun addChecklistItem(taskId: Long, text: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val original = dao.getTaskById(taskId) ?: return@launch
-            deepCopyRecursive(original, targetParentId)
+            val items = dao.getChecklistSnapshot(taskId)
+            dao.insertChecklistItem(ChecklistItem(taskId = taskId, text = text, orderIndex = items.size))
         }
     }
 
-    private suspend fun deepCopyRecursive(task: TaskItem, newParentId: Long?) {
-        val siblings = dao.getSubtasksSnapshot(newParentId)
-        val copy = task.copy(
-            id = 0L,
-            parentId = newParentId,
-            title = "${task.title} (Copy)",
-            calendarEventId = null,
-            orderIndex = siblings.size
-        )
-        val newGeneratedId = dao.insertTask(copy)
-
-        val children = dao.getSubtasksSnapshot(task.id)
-        for (child in children) {
-            deepCopyRecursive(child, newGeneratedId)
+    fun toggleChecklistItem(item: ChecklistItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.updateChecklistItem(item.copy(isDone = !item.isDone))
         }
     }
 
-    private fun persistUriPermission(uri: Uri?) {
-        uri?.let {
+    fun deleteChecklistItem(item: ChecklistItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.deleteChecklistItem(item)
+        }
+    }
+
+    fun moveChecklistItem(item: ChecklistItem, directionUp: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val list = dao.getChecklistSnapshot(item.taskId).toMutableList()
+            val index = list.indexOfFirst { it.id == item.id }
+            if (index == -1) return@launch
+
+            val targetIndex = if (directionUp) index - 1 else index + 1
+            if (targetIndex in list.indices) {
+                dao.updateChecklistItem(list[index].copy(orderIndex = targetIndex))
+                dao.updateChecklistItem(list[targetIndex].copy(orderIndex = index))
+            }
+        }
+    }
+
+    // ATTACHMENTS ACTIONS & SLIDING
+    fun addAttachment(taskId: Long, uri: Uri, name: String) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 getApplication<Application>().contentResolver.takePersistableUriPermission(
-                    it,
+                    uri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
             } catch (_: SecurityException) {}
+
+            val items = dao.getAttachmentsSnapshot(taskId)
+            dao.insertAttachment(
+                TaskAttachment(
+                    taskId = taskId,
+                    uriString = uri.toString(),
+                    fileName = name,
+                    orderIndex = items.size
+                )
+            )
         }
     }
 
-    private fun syncCalendarEvent(title: String, timeMs: Long, attachmentName: String?): Long? {
+    fun deleteAttachment(attachment: TaskAttachment) {
+        viewModelScope.launch(Dispatchers.IO) {
+            dao.deleteAttachment(attachment)
+        }
+    }
+
+    fun moveAttachment(attachment: TaskAttachment, directionUp: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val list = dao.getAttachmentsSnapshot(attachment.taskId).toMutableList()
+            val index = list.indexOfFirst { it.id == attachment.id }
+            if (index == -1) return@launch
+
+            val targetIndex = if (directionUp) index - 1 else index + 1
+            if (targetIndex in list.indices) {
+                dao.updateAttachment(list[index].copy(orderIndex = targetIndex))
+                dao.updateAttachment(list[targetIndex].copy(orderIndex = index))
+            }
+        }
+    }
+
+    private fun syncCalendarEvent(title: String, timeMs: Long): Long? {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
             android.Manifest.permission.WRITE_CALENDAR
@@ -184,7 +214,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     calendarId = calId,
                     title = title,
                     startTimeMs = timeMs,
-                    notes = "Attachment: ${attachmentName ?: "None"}"
+                    notes = "Synced from Infinite ToDo"
                 )
             }
         }
