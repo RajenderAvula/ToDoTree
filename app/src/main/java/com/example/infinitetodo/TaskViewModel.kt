@@ -1,7 +1,9 @@
 package com.example.infinitetodo
 
 import android.app.Application
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -13,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 
 data class FilterCriteria(
@@ -26,6 +30,7 @@ data class FilterCriteria(
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.getDatabase(application).taskDao()
     private val workManager = WorkManager.getInstance(application)
+    private val backupRestoreManager = BackupRestoreManager(application)
 
     val rootTasks: Flow<List<TaskItem>> = dao.getRootTasks()
     val allTasksFlow: Flow<List<TaskItem>> = dao.getAllTasksFlow()
@@ -45,6 +50,41 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun getAllPotentialParents(excludeTaskId: Long): List<TaskItem> {
         val all = dao.getAllTasksSnapshot()
         return all.filter { it.id != excludeTaskId }
+    }
+
+    // Backup and restore implementations
+    fun backupToDevice(destinationStream: OutputStream, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val success = backupRestoreManager.createZipBackup(dao, destinationStream)
+            withContext(Dispatchers.Main) { onComplete(success) }
+        }
+    }
+
+    fun sendBackupViaMail(onReady: (Intent?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val uri = backupRestoreManager.createMailAttachmentBackup(dao)
+            withContext(Dispatchers.Main) {
+                if (uri != null) {
+                    val emailIntent = Intent(Intent.ACTION_SEND).apply {
+                        type = "application/zip"
+                        putExtra(Intent.EXTRA_SUBJECT, "ToDoTree Complete Backup with Attachments")
+                        putExtra(Intent.EXTRA_TEXT, "Attached is your complete backup archive containing tasks, checklists, attachments, and audio recordings.")
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    onReady(emailIntent)
+                } else {
+                    onReady(null)
+                }
+            }
+        }
+    }
+
+    fun restoreBackup(sourceStream: InputStream, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val success = backupRestoreManager.restoreFromZip(dao, sourceStream)
+            withContext(Dispatchers.Main) { onComplete(success) }
+        }
     }
 
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
