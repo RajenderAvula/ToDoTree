@@ -4,6 +4,18 @@ import android.content.Context
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
+enum class TaskPriority {
+    LOW, MEDIUM, HIGH, URGENT
+}
+
+enum class RecurrenceRule {
+    NONE, DAILY, WEEKLY, MONTHLY
+}
+
+enum class AttachmentType {
+    FILE, IMAGE, AUDIO, VIDEO, CONTACT
+}
+
 @Entity(
     tableName = "tasks",
     foreignKeys = [
@@ -22,12 +34,12 @@ data class TaskItem(
     val title: String,
     val notes: String? = null,
     val isCompleted: Boolean = false,
+    val priority: TaskPriority = TaskPriority.MEDIUM,
     val reminderTimestamp: Long? = null,
+    val dueTimestamp: Long? = null,
+    val repeatRule: RecurrenceRule = RecurrenceRule.NONE,
     val calendarEventId: Long? = null,
-    val contactName: String? = null,
-    val contactPhone: String? = null,
-    val contactEmail: String? = null,
-    val voiceRecordingPath: String? = null,
+    val linkedTaskIds: String? = null, // Comma-separated IDs
     val orderIndex: Int = 0,
     val createdTimestamp: Long = System.currentTimeMillis(),
     val lastModifiedTimestamp: Long = System.currentTimeMillis()
@@ -49,12 +61,15 @@ data class ChecklistItem(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val taskId: Long,
     val text: String,
+    val notes: String? = null,
     val isDone: Boolean = false,
-    val orderIndex: Int = 0
+    val orderIndex: Int = 0,
+    val createdTimestamp: Long = System.currentTimeMillis(),
+    val lastModifiedTimestamp: Long = System.currentTimeMillis()
 )
 
 @Entity(
-    tableName = "task_attachments",
+    tableName = "rich_attachments",
     foreignKeys = [
         ForeignKey(
             entity = TaskItem::class,
@@ -65,12 +80,18 @@ data class ChecklistItem(
     ],
     indices = [Index(value = ["taskId"])]
 )
-data class TaskAttachment(
+data class RichAttachment(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val taskId: Long,
+    val type: AttachmentType,
     val uriString: String,
-    val fileName: String,
-    val orderIndex: Int = 0
+    val displayName: String,
+    val notes: String? = null,
+    val contactPhone: String? = null,
+    val isContactPending: Boolean = true,
+    val orderIndex: Int = 0,
+    val createdTimestamp: Long = System.currentTimeMillis(),
+    val lastModifiedTimestamp: Long = System.currentTimeMillis()
 )
 
 @Dao
@@ -84,22 +105,24 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId IS :parentId ORDER BY orderIndex ASC, id ASC")
     suspend fun getSubtasksSnapshot(parentId: Long?): List<TaskItem>
 
+    @Query("SELECT * FROM tasks ORDER BY orderIndex ASC, id ASC")
+    fun getAllTasksFlow(): Flow<List<TaskItem>>
+
     @Query("SELECT * FROM tasks")
     suspend fun getAllTasksSnapshot(): List<TaskItem>
 
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     suspend fun getTaskById(id: Long): TaskItem?
 
-    // Global Search across title, notes, contact name/phone/email, AND checklist items
     @Query("""
         SELECT DISTINCT t.* FROM tasks t
         LEFT JOIN checklist_items c ON t.id = c.taskId
+        LEFT JOIN rich_attachments a ON t.id = a.taskId
         WHERE t.title LIKE '%' || :query || '%' 
            OR t.notes LIKE '%' || :query || '%'
-           OR t.contactName LIKE '%' || :query || '%' 
-           OR t.contactPhone LIKE '%' || :query || '%'
-           OR t.contactEmail LIKE '%' || :query || '%'
            OR c.text LIKE '%' || :query || '%'
+           OR a.displayName LIKE '%' || :query || '%'
+           OR a.contactPhone LIKE '%' || :query || '%'
         ORDER BY t.lastModifiedTimestamp DESC
     """)
     fun searchTasks(query: String): Flow<List<TaskItem>>
@@ -119,15 +142,12 @@ interface TaskDao {
     @Query("DELETE FROM tasks")
     suspend fun clearAllTasks()
 
-    // Checklist operations
+    // Checklist Queries
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     fun getChecklistForTask(taskId: Long): Flow<List<ChecklistItem>>
 
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
-
-    @Query("SELECT * FROM checklist_items")
-    suspend fun getAllChecklistSnapshot(): List<ChecklistItem>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItem(item: ChecklistItem): Long
@@ -141,34 +161,32 @@ interface TaskDao {
     @Delete
     suspend fun deleteChecklistItem(item: ChecklistItem)
 
-    // Attachment operations
-    @Query("SELECT * FROM task_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
-    fun getAttachmentsForTask(taskId: Long): Flow<List<TaskAttachment>>
+    // Rich Attachment Queries
+    @Query("SELECT * FROM rich_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
+    fun getAttachmentsForTask(taskId: Long): Flow<List<RichAttachment>>
 
-    @Query("SELECT * FROM task_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
-    suspend fun getAttachmentsSnapshot(taskId: Long): List<TaskAttachment>
-
-    @Query("SELECT * FROM task_attachments")
-    suspend fun getAllAttachmentsSnapshot(): List<TaskAttachment>
+    @Query("SELECT * FROM rich_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
+    suspend fun getAttachmentsSnapshot(taskId: Long): List<RichAttachment>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAttachment(attachment: TaskAttachment): Long
+    suspend fun insertAttachment(attachment: RichAttachment): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAllAttachments(attachments: List<TaskAttachment>)
+    suspend fun insertAllAttachments(attachments: List<RichAttachment>)
 
     @Update
-    suspend fun updateAttachment(attachment: TaskAttachment)
+    suspend fun updateAttachment(attachment: RichAttachment)
 
     @Delete
-    suspend fun deleteAttachment(attachment: TaskAttachment)
+    suspend fun deleteAttachment(attachment: RichAttachment)
 }
 
 @Database(
-    entities = [TaskItem::class, ChecklistItem::class, TaskAttachment::class],
-    version = 6,
+    entities = [TaskItem::class, ChecklistItem::class, RichAttachment::class],
+    version = 7,
     exportSchema = false
 )
+@TypeConverters(TaskConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
 
@@ -189,5 +207,37 @@ abstract class AppDatabase : RoomDatabase() {
                 instance
             }
         }
+    }
+}
+
+class TaskConverters {
+    @TypeConverter
+    fun fromPriority(priority: TaskPriority): String = priority.name
+
+    @TypeConverter
+    fun toPriority(name: String): TaskPriority = try {
+        TaskPriority.valueOf(name)
+    } catch (_: Exception) {
+        TaskPriority.MEDIUM
+    }
+
+    @TypeConverter
+    fun fromRecurrence(recurrence: RecurrenceRule): String = recurrence.name
+
+    @TypeConverter
+    fun toRecurrence(name: String): RecurrenceRule = try {
+        RecurrenceRule.valueOf(name)
+    } catch (_: Exception) {
+        RecurrenceRule.NONE
+    }
+
+    @TypeConverter
+    fun fromAttachmentType(type: AttachmentType): String = type.name
+
+    @TypeConverter
+    fun toAttachmentType(name: String): AttachmentType = try {
+        AttachmentType.valueOf(name)
+    } catch (_: Exception) {
+        AttachmentType.FILE
     }
 }
