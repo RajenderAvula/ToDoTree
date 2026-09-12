@@ -29,11 +29,11 @@ class BackupRestoreManager(private val context: Context) {
                     put("title", t.title)
                     put("notes", t.notes ?: JSONObject.NULL)
                     put("isCompleted", t.isCompleted)
+                    put("priority", t.priority.name)
                     put("reminderTimestamp", t.reminderTimestamp ?: JSONObject.NULL)
-                    put("contactName", t.contactName ?: JSONObject.NULL)
-                    put("contactPhone", t.contactPhone ?: JSONObject.NULL)
-                    put("contactEmail", t.contactEmail ?: JSONObject.NULL)
-                    put("voiceRecordingPath", t.voiceRecordingPath ?: JSONObject.NULL)
+                    put("dueTimestamp", t.dueTimestamp ?: JSONObject.NULL)
+                    put("repeatRule", t.repeatRule.name)
+                    put("linkedTaskIds", t.linkedTaskIds ?: JSONObject.NULL)
                     put("orderIndex", t.orderIndex)
                     put("createdTimestamp", t.createdTimestamp)
                     put("lastModifiedTimestamp", t.lastModifiedTimestamp)
@@ -48,8 +48,11 @@ class BackupRestoreManager(private val context: Context) {
                     put("id", c.id)
                     put("taskId", c.taskId)
                     put("text", c.text)
+                    put("notes", c.notes ?: JSONObject.NULL)
                     put("isDone", c.isDone)
                     put("orderIndex", c.orderIndex)
+                    put("createdTimestamp", c.createdTimestamp)
+                    put("lastModifiedTimestamp", c.lastModifiedTimestamp)
                 }
                 checklistArray.put(obj)
             }
@@ -60,9 +63,15 @@ class BackupRestoreManager(private val context: Context) {
                 val obj = JSONObject().apply {
                     put("id", a.id)
                     put("taskId", a.taskId)
+                    put("type", a.type.name)
                     put("uriString", a.uriString)
-                    put("fileName", a.fileName)
+                    put("displayName", a.displayName)
+                    put("notes", a.notes ?: JSONObject.NULL)
+                    put("contactPhone", a.contactPhone ?: JSONObject.NULL)
+                    put("isContactPending", a.isContactPending)
                     put("orderIndex", a.orderIndex)
+                    put("createdTimestamp", a.createdTimestamp)
+                    put("lastModifiedTimestamp", a.lastModifiedTimestamp)
                 }
                 attachmentsArray.put(obj)
             }
@@ -72,25 +81,24 @@ class BackupRestoreManager(private val context: Context) {
             zipOut.write(rootJson.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            for (t in tasks) {
-                val voicePath = t.voiceRecordingPath
-                if (!voicePath.isNullOrBlank()) {
-                    val file = File(voicePath)
-                    if (file.exists()) {
-                        zipOut.putNextEntry(ZipEntry("voice_${file.name}"))
-                        file.inputStream().use { it.copyTo(zipOut) }
-                        zipOut.closeEntry()
-                    }
-                }
-            }
-
+            // Package actual files (audio recordings, captured videos, images, and documents)
             for (att in attachments) {
                 try {
-                    val uri = Uri.parse(att.uriString)
-                    context.contentResolver.openInputStream(uri)?.use { inStream ->
-                        zipOut.putNextEntry(ZipEntry("files/att_${att.id}_${att.fileName}"))
-                        inStream.copyTo(zipOut)
-                        zipOut.closeEntry()
+                    if (att.type == AttachmentType.AUDIO && att.uriString.startsWith("/")) {
+                        val file = File(att.uriString)
+                        if (file.exists() && file.isFile) {
+                            zipOut.putNextEntry(ZipEntry("files/att_${att.id}_${file.name}"))
+                            file.inputStream().use { input -> input.copyTo(zipOut) }
+                            zipOut.closeEntry()
+                        }
+                    } else if (att.type != AttachmentType.CONTACT) {
+                        val uri = Uri.parse(att.uriString)
+                        context.contentResolver.openInputStream(uri)?.use { inStream ->
+                            val safeName = att.displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                            zipOut.putNextEntry(ZipEntry("files/att_${att.id}_$safeName"))
+                            inStream.copyTo(zipOut)
+                            zipOut.closeEntry()
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -122,7 +130,6 @@ class BackupRestoreManager(private val context: Context) {
             var entry: ZipEntry? = zipIn.nextEntry
             var metadataJsonString: String? = null
             val restoredFilesDir = File(context.filesDir, "restored_attachments").apply { mkdirs() }
-            val restoredVoiceDir = File(context.filesDir, "restored_voices").apply { mkdirs() }
 
             val fileMap = mutableMapOf<String, String>()
 
@@ -132,12 +139,9 @@ class BackupRestoreManager(private val context: Context) {
                     val baos = ByteArrayOutputStream()
                     zipIn.copyTo(baos)
                     metadataJsonString = baos.toString(Charsets.UTF_8.name())
-                } else if (entryName.startsWith("voice_")) {
-                    val targetVoice = File(restoredVoiceDir, entryName)
-                    targetVoice.outputStream().use { zipIn.copyTo(it) }
-                    fileMap[entryName] = targetVoice.absolutePath
                 } else if (entryName.startsWith("files/")) {
-                    val targetFile = File(restoredFilesDir, entryName.substringAfter("files/"))
+                    val cleanFileName = entryName.substringAfter("files/")
+                    val targetFile = File(restoredFilesDir, cleanFileName)
                     targetFile.outputStream().use { zipIn.copyTo(it) }
                     fileMap[entryName] = targetFile.toURI().toString()
                 }
@@ -163,13 +167,11 @@ class BackupRestoreManager(private val context: Context) {
                 val oldParentId = if (obj.isNull("parentId")) null else obj.getLong("parentId")
                 val mappedParentId = if (oldParentId != null) idMapping[oldParentId] else null
 
-                var voicePath = if (obj.isNull("voiceRecordingPath")) null else obj.getString("voiceRecordingPath")
-                if (voicePath != null) {
-                    val voiceFileName = "voice_" + File(voicePath).name
-                    if (fileMap.containsKey(voiceFileName)) {
-                        voicePath = fileMap[voiceFileName]
-                    }
-                }
+                val priorityStr = obj.optString("priority", "MEDIUM")
+                val priorityVal = try { TaskPriority.valueOf(priorityStr) } catch (_: Exception) { TaskPriority.MEDIUM }
+
+                val repeatStr = obj.optString("repeatRule", "NONE")
+                val repeatVal = try { RecurrenceRule.valueOf(repeatStr) } catch (_: Exception) { RecurrenceRule.NONE }
 
                 val now = System.currentTimeMillis()
                 val task = TaskItem(
@@ -177,11 +179,12 @@ class BackupRestoreManager(private val context: Context) {
                     title = obj.getString("title"),
                     notes = if (obj.isNull("notes")) null else obj.getString("notes"),
                     isCompleted = obj.optBoolean("isCompleted", false),
+                    priority = priorityVal,
                     reminderTimestamp = if (obj.isNull("reminderTimestamp")) null else obj.getLong("reminderTimestamp"),
-                    contactName = if (obj.isNull("contactName")) null else obj.getString("contactName"),
-                    contactPhone = if (obj.isNull("contactPhone")) null else obj.getString("contactPhone"),
-                    contactEmail = if (obj.isNull("contactEmail")) null else obj.getString("contactEmail"),
-                    voiceRecordingPath = voicePath,
+                    dueTimestamp = if (obj.isNull("dueTimestamp")) null else obj.getLong("dueTimestamp"),
+                    repeatRule = repeatVal,
+                    calendarEventId = null,
+                    linkedTaskIds = if (obj.isNull("linkedTaskIds")) null else obj.getString("linkedTaskIds"),
                     orderIndex = obj.optInt("orderIndex", 0),
                     createdTimestamp = obj.optLong("createdTimestamp", now),
                     lastModifiedTimestamp = obj.optLong("lastModifiedTimestamp", now)
@@ -197,34 +200,51 @@ class BackupRestoreManager(private val context: Context) {
                 val oldTaskId = obj.getLong("taskId")
                 val newTaskId = idMapping[oldTaskId] ?: continue
 
+                val now = System.currentTimeMillis()
                 newChecklists.add(
                     ChecklistItem(
                         taskId = newTaskId,
                         text = obj.getString("text"),
+                        notes = if (obj.isNull("notes")) null else obj.getString("notes"),
                         isDone = obj.optBoolean("isDone", false),
-                        orderIndex = obj.optInt("orderIndex", 0)
+                        orderIndex = obj.optInt("orderIndex", 0),
+                        createdTimestamp = obj.optLong("createdTimestamp", now),
+                        lastModifiedTimestamp = obj.optLong("lastModifiedTimestamp", now)
                     )
                 )
             }
             dao.insertAllChecklistItems(newChecklists)
 
-            val newAttachments = mutableListOf<TaskAttachment>()
+            val newAttachments = mutableListOf<RichAttachment>()
             for (i in 0 until attachmentsArray.length()) {
                 val obj = attachmentsArray.getJSONObject(i)
                 val oldId = obj.getLong("id")
                 val oldTaskId = obj.getLong("taskId")
                 val newTaskId = idMapping[oldTaskId] ?: continue
-                val fileName = obj.getString("fileName")
 
-                val zipKey = "files/att_${oldId}_${fileName}"
-                val targetUri = fileMap[zipKey] ?: obj.getString("uriString")
+                val typeStr = obj.optString("type", "FILE")
+                val typeVal = try { AttachmentType.valueOf(typeStr) } catch (_: Exception) { AttachmentType.FILE }
 
+                val displayName = obj.getString("displayName")
+                val originalUri = obj.getString("uriString")
+
+                val safeName = displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val zipKey = "files/att_${oldId}_$safeName"
+                val finalUri = fileMap[zipKey] ?: originalUri
+
+                val now = System.currentTimeMillis()
                 newAttachments.add(
-                    TaskAttachment(
+                    RichAttachment(
                         taskId = newTaskId,
-                        uriString = targetUri,
-                        fileName = fileName,
-                        orderIndex = obj.optInt("orderIndex", 0)
+                        type = typeVal,
+                        uriString = finalUri,
+                        displayName = displayName,
+                        notes = if (obj.isNull("notes")) null else obj.getString("notes"),
+                        contactPhone = if (obj.isNull("contactPhone")) null else obj.getString("contactPhone"),
+                        isContactPending = obj.optBoolean("isContactPending", true),
+                        orderIndex = obj.optInt("orderIndex", 0),
+                        createdTimestamp = obj.optLong("createdTimestamp", now),
+                        lastModifiedTimestamp = obj.optLong("lastModifiedTimestamp", now)
                     )
                 )
             }
