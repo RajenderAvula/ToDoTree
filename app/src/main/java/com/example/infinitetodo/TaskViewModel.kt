@@ -47,10 +47,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         return all.filter { it.id != excludeTaskId }
     }
 
-    /**
-     * Synchronizes ANY task (with or without reminder/due date) to Google Calendar.
-     * When dates are absent, creates an All-Day Event on the creation date.
-     */
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -167,7 +163,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val id = dao.insertTask(newTask)
             val createdTask = newTask.copy(id = id)
 
-            // Immediately sync every created task to Google Calendar
             syncTaskToCalendar(createdTask)
 
             if (reminderEpochMs != null && reminderEpochMs > System.currentTimeMillis()) {
