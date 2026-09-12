@@ -9,7 +9,7 @@ enum class TaskPriority {
 }
 
 enum class RecurrenceRule {
-    NONE, DAILY, WEEKLY, MONTHLY
+    NONE, DAILY, WEEKLY, MONTHLY, CUSTOM
 }
 
 enum class AttachmentType {
@@ -38,8 +38,9 @@ data class TaskItem(
     val reminderTimestamp: Long? = null,
     val dueTimestamp: Long? = null,
     val repeatRule: RecurrenceRule = RecurrenceRule.NONE,
+    val repeatIntervalDays: Int = 1,
     val calendarEventId: Long? = null,
-    val linkedTaskIds: String? = null,
+    val linkedTaskIds: String? = null, // Comma-separated IDs: "2,5,12"
     val orderIndex: Int = 0,
     val createdTimestamp: Long = System.currentTimeMillis(),
     val lastModifiedTimestamp: Long = System.currentTimeMillis()
@@ -104,6 +105,9 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE parentId IS :parentId ORDER BY orderIndex ASC, id ASC")
     suspend fun getSubtasksSnapshot(parentId: Long?): List<TaskItem>
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE parentId = :parentId")
+    fun getSubtaskCount(parentId: Long): Flow<Int>
 
     @Query("SELECT * FROM tasks ORDER BY orderIndex ASC, id ASC")
     fun getAllTasksFlow(): Flow<List<TaskItem>>
@@ -189,7 +193,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, RichAttachment::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(TaskConverters::class)
