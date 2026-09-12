@@ -39,7 +39,7 @@ data class TaskItem(
     val dueTimestamp: Long? = null,
     val repeatRule: RecurrenceRule = RecurrenceRule.NONE,
     val calendarEventId: Long? = null,
-    val linkedTaskIds: String? = null, // Comma-separated IDs
+    val linkedTaskIds: String? = null,
     val orderIndex: Int = 0,
     val createdTimestamp: Long = System.currentTimeMillis(),
     val lastModifiedTimestamp: Long = System.currentTimeMillis()
