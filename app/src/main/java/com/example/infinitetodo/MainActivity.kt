@@ -1,4 +1,4 @@
-  package com.example.infinitetodo
+package com.example.infinitetodo
 
 import android.Manifest
 import android.app.DatePickerDialog
@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -114,6 +115,9 @@ fun MainAppScaffold(
     var activeFullScreenTask by remember { mutableStateOf<TaskItem?>(null) }
     val scope = rememberCoroutineScope()
 
+    // Holds currently focused task ID for drill-down view (null = Root)
+    var focusedParentId by remember { mutableStateOf<Long?>(null) }
+
     var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }
     var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }
 
@@ -147,7 +151,10 @@ fun MainAppScaffold(
                 AppNavTab.values().forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
-                        onClick = { selectedTab = tab },
+                        onClick = {
+                            selectedTab = tab
+                            if (tab == AppNavTab.HOME) focusedParentId = null
+                        },
                         icon = { Icon(tab.icon, contentDescription = tab.title) },
                         label = { Text(tab.title) },
                         alwaysShowLabel = true
@@ -160,7 +167,7 @@ fun MainAppScaffold(
                 FloatingActionButton(
                     onClick = {
                         scope.launch {
-                            val draft = viewModel.createInitialDraftTask(null)
+                            val draft = viewModel.createInitialDraftTask(focusedParentId)
                             activeFullScreenTask = draft
                         }
                     },
@@ -180,12 +187,12 @@ fun MainAppScaffold(
             when (selectedTab) {
                 AppNavTab.HOME -> HomeDashboardTab(
                     viewModel = viewModel,
-                    viewMode = viewMode,
+                    focusedParentId = focusedParentId,
+                    onFocusParent = { focusedParentId = it },
                     onOpenTask = { activeFullScreenTask = it },
-                    onNavigateToTab = { selectedTab = it },
                     onAddNewTask = {
                         scope.launch {
-                            val draft = viewModel.createInitialDraftTask(null)
+                            val draft = viewModel.createInitialDraftTask(focusedParentId)
                             activeFullScreenTask = draft
                         }
                     }
@@ -193,6 +200,8 @@ fun MainAppScaffold(
                 AppNavTab.TASKS -> TasksTreeTab(
                     viewModel = viewModel,
                     viewMode = viewMode,
+                    focusedParentId = focusedParentId,
+                    onFocusParent = { focusedParentId = it },
                     onAddSubtask = { parentId ->
                         scope.launch {
                             val draft = viewModel.createInitialDraftTask(parentId)
@@ -221,7 +230,6 @@ fun MainAppScaffold(
             }
         }
 
-        // Dedicated Full-Screen Workspace
         activeFullScreenTask?.let { taskToEdit ->
             FullScreenTaskEditor(
                 task = taskToEdit,
@@ -240,7 +248,6 @@ fun MainAppScaffold(
             )
         }
 
-        // Target Destination Dialogs
         taskForTargetMove?.let { movingTask ->
             TaskDestinationDialog(
                 title = "Move '${movingTask.title}' to...",
@@ -272,7 +279,69 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
-// COMMON MULTI-CRITERIA FILTER BAR WITH CREATED & DUE DATE RANGES
+// BREADCRUMB LINEAGE BAR
+// -----------------------------------------------------------------------------------------
+@Composable
+fun TaskBreadcrumbBar(
+    viewModel: TaskViewModel,
+    focusedParentId: Long?,
+    onSelectAncestor: (Long?) -> Unit
+) {
+    var trail by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(focusedParentId) {
+        scope.launch {
+            trail = viewModel.getBreadcrumbTrail(focusedParentId)
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Root",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (focusedParentId == null) FontWeight.Bold else FontWeight.Normal,
+                color = if (focusedParentId == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                modifier = Modifier
+                    .clickable { onSelectAncestor(null) }
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            )
+
+            trail.forEach { task ->
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = MaterialTheme.colorScheme.outline
+                )
+
+                val isCurrent = task.id == focusedParentId
+                Text(
+                    text = task.title.ifBlank { "Task #${task.id}" },
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                    modifier = Modifier
+                        .clickable { onSelectAncestor(task.id) }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// COMMON MULTI-CRITERIA FILTER BAR
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -319,7 +388,6 @@ fun TaskFilterHeaderBar(
 
         AnimatedVisibility(visible = showFilterSheet) {
             Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Priority chips
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Priority:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
                     TaskPriority.values().forEach { priority ->
@@ -335,7 +403,6 @@ fun TaskFilterHeaderBar(
                     }
                 }
 
-                // Status chips
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Status:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
                     FilterChip(
@@ -360,7 +427,6 @@ fun TaskFilterHeaderBar(
                     )
                 }
 
-                // Created & Due Date Range Filters
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Dates:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
 
@@ -420,24 +486,27 @@ fun TaskFilterHeaderBar(
 }
 
 // -----------------------------------------------------------------------------------------
-// 1. HOME DASHBOARD TAB
+// 1. HOME DASHBOARD TAB (WITH LINEAGE TRAIL & DRILL-DOWN SUBTREE SCOPE)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
     viewModel: TaskViewModel,
-    viewMode: TaskViewMode,
+    focusedParentId: Long?,
+    onFocusParent: (Long?) -> Unit,
     onOpenTask: (TaskItem) -> Unit,
-    onNavigateToTab: (AppNavTab) -> Unit,
     onAddNewTask: () -> Unit
 ) {
-    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    // Collect tasks scoped to the focused parent (or root if null)
+    val scopedTasks by (if (focusedParentId == null) viewModel.rootTasks else viewModel.getSubtasks(focusedParentId))
+        .collectAsState(initial = emptyList())
+
     var searchQuery by remember { mutableStateOf("") }
     val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
     val filterState by viewModel.filterState.collectAsState()
     val context = LocalContext.current
 
-    val displayedTasks = remember(allTasks, searchResults, searchQuery, filterState) {
-        val base = if (searchQuery.isNotBlank()) searchResults else allTasks
+    val displayedTasks = remember(scopedTasks, searchResults, searchQuery, filterState) {
+        val base = if (searchQuery.isNotBlank()) searchResults else scopedTasks
         base.filter { task ->
             (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
             (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
@@ -448,6 +517,9 @@ fun HomeDashboardTab(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
+
+        // BREADCRUMB LINEAGE BAR
+        TaskBreadcrumbBar(viewModel, focusedParentId) { onFocusParent(it) }
 
         LazyColumn(
             modifier = Modifier
@@ -462,13 +534,17 @@ fun HomeDashboardTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Infinite ToDo", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                        Text("${displayedTasks.size} Tasks Listed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                        Text(
+                            text = if (focusedParentId == null) "Top-Level Tasks" else "Included Subtasks",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text("${displayedTasks.size} task(s) in this scope", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                     }
                     IconButton(onClick = {
-                        PrintHelper.printTasks(context, "Full Agenda Print", displayedTasks)
+                        PrintHelper.printTasks(context, "Task Scope Print", displayedTasks)
                     }) {
-                        Icon(Icons.Default.Print, contentDescription = "Print Agenda")
+                        Icon(Icons.Default.Print, contentDescription = "Print")
                     }
                 }
             }
@@ -481,7 +557,8 @@ fun HomeDashboardTab(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onOpenTask(task) },
+                        // CLICKING TASK DRILLS DOWN INTO ITS SUBTASKS
+                        .clickable { onFocusParent(task.id) },
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -501,10 +578,17 @@ fun HomeDashboardTab(
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     PriorityBadge(task.priority)
+
                                     if (subtaskCount > 0) {
                                         Spacer(Modifier.width(6.dp))
-                                        Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(4.dp)) {
-                                            Text("[$subtaskCount subtasks]", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(4.dp)) {
+                                            Text(
+                                                text = "[$subtaskCount subtasks ➔]",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -519,7 +603,11 @@ fun HomeDashboardTab(
                                     )
                                 }
                             }
-                            Icon(Icons.AutoMirrored.Filled.ArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+
+                            // Open Full Workspace Button
+                            IconButton(onClick = { onOpenTask(task) }) {
+                                Icon(Icons.Default.OpenInFull, contentDescription = "Open Workspace", tint = MaterialTheme.colorScheme.primary)
+                            }
                         }
 
                         if (contacts.isNotEmpty()) {
@@ -532,7 +620,7 @@ fun HomeDashboardTab(
                             ) {
                                 contacts.forEach { contact ->
                                     Surface(
-                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
                                         shape = RoundedCornerShape(8.dp)
                                     ) {
                                         Row(
@@ -559,23 +647,30 @@ fun HomeDashboardTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 2. TASKS TREE TAB (UNCONGESTED ROWS WITH EXPLICIT COUNTER & SEPARATED ACTIONS)
+// 2. TASKS TREE TAB (WITH SCOPED LEVEL DRILLING & BREADCRUMBS)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
     viewModel: TaskViewModel,
     viewMode: TaskViewMode,
+    focusedParentId: Long?,
+    onFocusParent: (Long?) -> Unit,
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
     onMoveToTarget: (TaskItem) -> Unit,
     onCopyToTarget: (TaskItem) -> Unit
 ) {
-    val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())
+    val activeTasks by (if (focusedParentId == null) viewModel.rootTasks else viewModel.getSubtasks(focusedParentId))
+        .collectAsState(initial = emptyList())
+
     var searchQuery by remember { mutableStateOf("") }
     val context = LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
+
+        // BREADCRUMB LINEAGE BAR
+        TaskBreadcrumbBar(viewModel, focusedParentId) { onFocusParent(it) }
 
         Row(
             modifier = Modifier
@@ -584,7 +679,11 @@ fun TasksTreeTab(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Hierarchical Tree", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                text = if (focusedParentId == null) "Hierarchical Tree" else "Subtree Workspace",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
             Row {
                 IconButton(onClick = {
                     viewModel.syncAllTasksToCalendar { count ->
@@ -594,7 +693,7 @@ fun TasksTreeTab(
                     Icon(Icons.Default.Sync, contentDescription = "Sync All")
                 }
                 IconButton(onClick = {
-                    PrintHelper.printTasks(context, "Hierarchy Tree Print", rootTasks)
+                    PrintHelper.printTasks(context, "Hierarchy Tree Print", activeTasks)
                 }) {
                     Icon(Icons.Default.Print, contentDescription = "Print Tree")
                 }
@@ -606,12 +705,13 @@ fun TasksTreeTab(
                 .fillMaxSize()
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-            items(rootTasks, key = { it.id }) { rootTask ->
+            items(activeTasks, key = { it.id }) { task ->
                 TaskNodeView(
-                    task = rootTask,
+                    task = task,
                     depth = 0,
                     viewMode = viewMode,
                     viewModel = viewModel,
+                    onDrillInto = { onFocusParent(task.id) },
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
                     onMoveToTarget = onMoveToTarget,
@@ -790,7 +890,7 @@ fun GanttChartTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 5. SETTINGS MANAGER TAB (WITH RESTORED BACKUP TO MAIL)
+// 5. SETTINGS MANAGER TAB
 // -----------------------------------------------------------------------------------------
 @Composable
 fun SettingsManagerTab(
@@ -955,7 +1055,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (DECONGESTED ROWS, VISIBLE CONTACTS & EXPLICIT COUNTER)
+// REUSABLE TASK TREE ROW (WITH DRILL-INTO CLICK & ENLARGED BUTTONS)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -963,6 +1063,7 @@ fun TaskNodeView(
     depth: Int,
     viewMode: TaskViewMode,
     viewModel: TaskViewModel,
+    onDrillInto: () -> Unit,
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
     onMoveToTarget: (TaskItem) -> Unit,
@@ -1057,7 +1158,8 @@ fun TaskNodeView(
 
                     Spacer(Modifier.width(6.dp))
 
-                    Column(modifier = Modifier.weight(1f).clickable { onOpenFullScreen(task) }) {
+                    // CLICKING ROW NAVIGATES/DRILLS DIRECTLY INTO SUBTASK SCOPE
+                    Column(modifier = Modifier.weight(1f).clickable { onDrillInto() }) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
@@ -1079,7 +1181,7 @@ fun TaskNodeView(
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Text(
-                                    text = if (subtaskCount > 0) "$subtaskCount subtask${if (subtaskCount > 1) "s" else ""}" else "0 subtasks",
+                                    text = if (subtaskCount > 0) "$subtaskCount subtask${if (subtaskCount > 1) "s" else ""} ➔" else "0 subtasks",
                                     color = if (subtaskCount > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.outline,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
@@ -1107,7 +1209,7 @@ fun TaskNodeView(
                         ) {
                             Icon(
                                 imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowRight,
-                                contentDescription = "Expand Subtasks",
+                                contentDescription = "Expand Inline Subtree",
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -1125,7 +1227,7 @@ fun TaskNodeView(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // ROW 3: Prominent Horizontal Contact Chips
+                // ROW 3: Horizontal Contacts Chips
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -1156,7 +1258,7 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 4: Action Toolbar (Separated to eliminate congestion)
+                // ROW 4: Action Toolbar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1164,7 +1266,6 @@ fun TaskNodeView(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Position and hierarchy controls
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.moveTaskVertical(task, directionUp = true) }) {
                             Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(17.dp))
@@ -1182,7 +1283,6 @@ fun TaskNodeView(
                         }
                     }
 
-                    // Task manipulation controls
                     Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                         IconButton(modifier = Modifier.size(30.dp), onClick = { onAddSubtask(task.id) }) {
                             Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(17.dp))
@@ -1211,6 +1311,7 @@ fun TaskNodeView(
                     depth = depth + 1,
                     viewMode = viewMode,
                     viewModel = viewModel,
+                    onDrillInto = { /* Nested drill down */ },
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
                     onMoveToTarget = onMoveToTarget,
@@ -1874,4 +1975,3 @@ fun TaskDestinationDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
-            
