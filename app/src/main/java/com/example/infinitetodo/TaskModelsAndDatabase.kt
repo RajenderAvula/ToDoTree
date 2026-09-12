@@ -149,6 +149,9 @@ interface TaskDao {
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
 
+    @Query("SELECT * FROM checklist_items")
+    suspend fun getAllChecklistSnapshot(): List<ChecklistItem>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItem(item: ChecklistItem): Long
 
@@ -168,6 +171,9 @@ interface TaskDao {
     @Query("SELECT * FROM rich_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getAttachmentsSnapshot(taskId: Long): List<RichAttachment>
 
+    @Query("SELECT * FROM rich_attachments")
+    suspend fun getAllAttachmentsSnapshot(): List<RichAttachment>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttachment(attachment: RichAttachment): Long
 
@@ -183,7 +189,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, RichAttachment::class],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 @TypeConverters(TaskConverters::class)
