@@ -53,6 +53,19 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun getTaskById(taskId: Long): TaskItem? = dao.getTaskById(taskId)
 
+    // Builds the full parent lineage from leaf up to root main task
+    suspend fun getBreadcrumbTrail(leafTaskId: Long?): List<TaskItem> {
+        if (leafTaskId == null) return emptyList()
+        val path = mutableListOf<TaskItem>()
+        var currentId: Long? = leafTaskId
+        while (currentId != null) {
+            val task = dao.getTaskById(currentId) ?: break
+            path.add(0, task)
+            currentId = task.parentId
+        }
+        return path
+    }
+
     suspend fun getAllPotentialParents(excludeTaskId: Long): List<TaskItem> {
         val all = dao.getAllTasksSnapshot()
         return all.filter { it.id != excludeTaskId }
@@ -93,10 +106,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Synchronizes task to Google Calendar strictly on created/modified date,
-     * not depending on due date or reminder date.
-     */
+    // CALENDAR SYNC ON CREATED / MODIFIED DATE
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -106,8 +116,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
         return try {
             val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-
-            // SYNC STRICTLY BASED ON LAST MODIFIED / CREATED DATE
             val syncEpochMs = task.lastModifiedTimestamp.takeIf { it > 0 } ?: task.createdTimestamp
 
             val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
@@ -171,7 +179,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             }
             val ok = syncTaskToCalendar(task)
             withContext(Dispatchers.Main) {
-                onResult(if (ok) "Synced '${task.title}' to Calendar on modified date ✓" else "Calendar permission missing or sync failed")
+                onResult(if (ok) "Synced '${task.title}' to Calendar ✓" else "Calendar permission missing or sync failed")
             }
         }
     }
@@ -357,6 +365,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -424,6 +433,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
