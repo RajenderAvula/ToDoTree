@@ -16,6 +16,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 data class FilterCriteria(
@@ -91,7 +93,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CALENDAR AUTOMATIC SYNCHRONIZATION FOR ALL TASKS
+    /**
+     * Synchronizes task to Google Calendar strictly on created/modified date,
+     * not depending on due date or reminder date.
+     */
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -100,8 +105,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasPermission) return false
 
         return try {
-            val isAllDay = task.dueTimestamp == null && task.reminderTimestamp == null
-            val effectiveTimeMs = task.dueTimestamp ?: task.reminderTimestamp ?: task.createdTimestamp
+            val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+
+            // SYNC STRICTLY BASED ON LAST MODIFIED / CREATED DATE
+            val syncEpochMs = task.lastModifiedTimestamp.takeIf { it > 0 } ?: task.createdTimestamp
 
             val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
             val hierarchyPrefix = if (parentTask != null) "[Subtask of '${parentTask.title}'] " else "[Main Task] "
@@ -119,9 +126,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 "\n\nAttachments & Contacts:\n" + attachments.joinToString("\n") { "- [${it.type}] ${it.displayName}" }
             } else ""
 
-            val dateTypeNotice = if (isAllDay) "Schedule: All-Day Item (No specific time set)\n" else ""
-            val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name} (Every ${task.repeatIntervalDays} cycles)\n" else ""
-            val fullDescription = "$dateTypeNotice$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
+            val auditNote = "Action Date: ${dateFormat.format(Date(syncEpochMs))}\nCreated: ${dateFormat.format(Date(task.createdTimestamp))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
+            val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name}\n" else ""
+            val fullDescription = "$auditNote$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
 
             if (task.calendarEventId != null) {
                 CalendarHelper.updateEvent(
@@ -129,8 +136,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     eventId = task.calendarEventId,
                     title = fullCalendarTitle,
                     notes = fullDescription,
-                    startTimeMs = effectiveTimeMs,
-                    isAllDay = isAllDay
+                    startTimeMs = syncEpochMs,
+                    isAllDay = false
                 )
             } else {
                 val calId = CalendarHelper.getPrimaryGoogleCalendarId(getApplication())
@@ -139,9 +146,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                         context = getApplication(),
                         calendarId = calId,
                         title = fullCalendarTitle,
-                        startTimeMs = effectiveTimeMs,
+                        startTimeMs = syncEpochMs,
                         notes = fullDescription,
-                        isAllDay = isAllDay
+                        isAllDay = false
                     )
                     if (newEventId != null) {
                         dao.updateTask(task.copy(calendarEventId = newEventId))
@@ -164,7 +171,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             }
             val ok = syncTaskToCalendar(task)
             withContext(Dispatchers.Main) {
-                onResult(if (ok) "Synced '${task.title}' to Calendar ✓" else "Calendar permission missing or sync failed")
+                onResult(if (ok) "Synced '${task.title}' to Calendar on modified date ✓" else "Calendar permission missing or sync failed")
             }
         }
     }
@@ -180,7 +187,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Creates an empty/draft task shell and returns ID immediately for first-time creation workflows
     suspend fun createInitialDraftTask(parentId: Long?): TaskItem {
         val now = System.currentTimeMillis()
         val siblings = dao.getSubtasksSnapshot(parentId)
@@ -351,7 +357,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -419,7 +424,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ATTACHMENT & CONTACT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
