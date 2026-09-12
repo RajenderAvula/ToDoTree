@@ -3,7 +3,6 @@ package com.example.infinitetodo
 import android.app.Application
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -23,8 +22,10 @@ data class FilterCriteria(
     val priorities: Set<TaskPriority> = emptySet(),
     val statusPending: Boolean? = null,
     val mustHaveContact: Boolean = false,
-    val dateFromMs: Long? = null,
-    val dateToMs: Long? = null
+    val createdFromMs: Long? = null,
+    val createdToMs: Long? = null,
+    val dueFromMs: Long? = null,
+    val dueToMs: Long? = null
 )
 
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
@@ -43,16 +44,19 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getSubtasks(parentId: Long): Flow<List<TaskItem>> = dao.getSubtasks(parentId)
+    fun getSubtaskCount(parentId: Long): Flow<Int> = dao.getSubtaskCount(parentId)
     fun getChecklist(taskId: Long): Flow<List<ChecklistItem>> = dao.getChecklistForTask(taskId)
     fun getAttachments(taskId: Long): Flow<List<RichAttachment>> = dao.getAttachmentsForTask(taskId)
     fun searchTasks(query: String): Flow<List<TaskItem>> = dao.searchTasks(query)
+
+    suspend fun getTaskById(taskId: Long): TaskItem? = dao.getTaskById(taskId)
 
     suspend fun getAllPotentialParents(excludeTaskId: Long): List<TaskItem> {
         val all = dao.getAllTasksSnapshot()
         return all.filter { it.id != excludeTaskId }
     }
 
-    // Backup and restore implementations
+    // BACKUP & RESTORE
     fun backupToDevice(destinationStream: OutputStream, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val success = backupRestoreManager.createZipBackup(dao, destinationStream)
@@ -68,7 +72,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     val emailIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "application/zip"
                         putExtra(Intent.EXTRA_SUBJECT, "ToDoTree Complete Backup with Attachments")
-                        putExtra(Intent.EXTRA_TEXT, "Attached is your complete backup archive containing tasks, checklists, attachments, and audio recordings.")
+                        putExtra(Intent.EXTRA_TEXT, "Attached is your ToDoTree complete backup archive containing tasks, checklists, attachments, and audio recordings.")
                         putExtra(Intent.EXTRA_STREAM, uri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
@@ -87,6 +91,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // CALENDAR AUTOMATIC SYNCHRONIZATION FOR ALL TASKS
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -115,7 +120,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             } else ""
 
             val dateTypeNotice = if (isAllDay) "Schedule: All-Day Item (No specific time set)\n" else ""
-            val fullDescription = "$dateTypeNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
+            val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name} (Every ${task.repeatIntervalDays} cycles)\n" else ""
+            val fullDescription = "$dateTypeNotice$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
 
             if (task.calendarEventId != null) {
                 CalendarHelper.updateEvent(
@@ -174,44 +180,22 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun addTask(
-        title: String,
-        notes: String? = null,
-        parentId: Long? = null,
-        priority: TaskPriority = TaskPriority.MEDIUM,
-        reminderEpochMs: Long? = null,
-        dueEpochMs: Long? = null,
-        repeatRule: RecurrenceRule = RecurrenceRule.NONE,
-        linkedTaskIds: String? = null
-    ) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val now = System.currentTimeMillis()
-            val siblings = dao.getSubtasksSnapshot(parentId)
-            val newTask = TaskItem(
-                parentId = parentId,
-                title = title,
-                notes = notes,
-                priority = priority,
-                reminderTimestamp = reminderEpochMs,
-                dueTimestamp = dueEpochMs,
-                repeatRule = repeatRule,
-                linkedTaskIds = linkedTaskIds,
-                orderIndex = siblings.size,
-                createdTimestamp = now,
-                lastModifiedTimestamp = now
-            )
-            val id = dao.insertTask(newTask)
-            val createdTask = newTask.copy(id = id)
-
-            syncTaskToCalendar(createdTask)
-
-            if (reminderEpochMs != null && reminderEpochMs > System.currentTimeMillis()) {
-                scheduleReminder(id, title, reminderEpochMs)
-            }
-        }
+    // Creates an empty/draft task shell and returns ID immediately for first-time creation workflows
+    suspend fun createInitialDraftTask(parentId: Long?): TaskItem {
+        val now = System.currentTimeMillis()
+        val siblings = dao.getSubtasksSnapshot(parentId)
+        val draft = TaskItem(
+            parentId = parentId,
+            title = "",
+            orderIndex = siblings.size,
+            createdTimestamp = now,
+            lastModifiedTimestamp = now
+        )
+        val id = dao.insertTask(draft)
+        return draft.copy(id = id)
     }
 
-    fun updateTask(
+    fun saveTask(
         task: TaskItem,
         title: String,
         notes: String?,
@@ -219,6 +203,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         reminderEpochMs: Long?,
         dueEpochMs: Long?,
         repeatRule: RecurrenceRule,
+        repeatIntervalDays: Int,
         linkedTaskIds: String?
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -230,6 +215,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 reminderTimestamp = reminderEpochMs,
                 dueTimestamp = dueEpochMs,
                 repeatRule = repeatRule,
+                repeatIntervalDays = repeatIntervalDays,
                 linkedTaskIds = linkedTaskIds,
                 lastModifiedTimestamp = now
             )
@@ -365,6 +351,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -432,6 +419,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ATTACHMENT & CONTACT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
