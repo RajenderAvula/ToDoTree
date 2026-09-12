@@ -1,4 +1,4 @@
-package com.example.infinitetodo
+  package com.example.infinitetodo
 
 import android.Manifest
 import android.app.DatePickerDialog
@@ -31,7 +31,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowRight
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -222,7 +221,7 @@ fun MainAppScaffold(
             }
         }
 
-        // UNIFIED FULL SCREEN WORKSPACE VIEW
+        // Dedicated Full-Screen Workspace
         activeFullScreenTask?.let { taskToEdit ->
             FullScreenTaskEditor(
                 task = taskToEdit,
@@ -241,7 +240,7 @@ fun MainAppScaffold(
             )
         }
 
-        // Target Destination Move Dialog
+        // Target Destination Dialogs
         taskForTargetMove?.let { movingTask ->
             TaskDestinationDialog(
                 title = "Move '${movingTask.title}' to...",
@@ -256,7 +255,6 @@ fun MainAppScaffold(
             )
         }
 
-        // Target Destination Copy Dialog
         taskForTargetCopy?.let { copyingTask ->
             TaskDestinationDialog(
                 title = "Copy '${copyingTask.title}' to...",
@@ -366,7 +364,6 @@ fun TaskFilterHeaderBar(
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Dates:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
 
-                    // Filter by Created Date
                     AssistChip(
                         onClick = {
                             val c = Calendar.getInstance()
@@ -392,7 +389,6 @@ fun TaskFilterHeaderBar(
                         }
                     )
 
-                    // Filter by Due Date
                     AssistChip(
                         onClick = {
                             val c = Calendar.getInstance()
@@ -526,7 +522,6 @@ fun HomeDashboardTab(
                             Icon(Icons.AutoMirrored.Filled.ArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
                         }
 
-                        // Prominent Horizontal Contact Bar
                         if (contacts.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -564,7 +559,7 @@ fun HomeDashboardTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 2. TASKS TREE TAB (HOLD-AND-RELEASE SLIDING & DIRECTIONAL ARROWS)
+// 2. TASKS TREE TAB (UNCONGESTED ROWS WITH EXPLICIT COUNTER & SEPARATED ACTIONS)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
@@ -780,7 +775,7 @@ fun GanttChartTab(
                                 .background(
                                     if (task.isCompleted) Color(0xFF43A047)
                                     else when (task.priority) {
-                                        TaskPriority.URGENT -> Color(0xFFE53935)
+                                        TaskPriority.URGENT -> Color(0xFFD32F2F)
                                         TaskPriority.HIGH -> Color(0xFFFB8C00)
                                         TaskPriority.MEDIUM -> Color(0xFF1E88E5)
                                         TaskPriority.LOW -> Color(0xFF7CB342)
@@ -869,7 +864,6 @@ fun SettingsManagerTab(
                     Text("Backup to Device (ZIP)")
                 }
 
-                // RESTORED BACKUP TO MAIL
                 OutlinedButton(
                     onClick = {
                         viewModel.sendBackupViaMail { intent ->
@@ -961,7 +955,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (HOLD-AND-RELEASE DRAG & VISIBLE CONTACTS)
+// REUSABLE TASK TREE ROW (DECONGESTED ROWS, VISIBLE CONTACTS & EXPLICIT COUNTER)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -987,7 +981,6 @@ fun TaskNodeView(
     val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
 
-    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     Column(
@@ -999,7 +992,7 @@ fun TaskNodeView(
             modifier = Modifier
                 .fillMaxWidth()
                 .offset { IntOffset(0, animatedOffsetY.roundToInt()) }
-                .scale(if (isUndocked) 1.03f else 1f)
+                .scale(if (isUndocked) 1.02f else 1f)
                 .border(
                     width = if (isUndocked) 2.dp else 0.dp,
                     color = if (isUndocked) MaterialTheme.colorScheme.primary else Color.Transparent,
@@ -1008,15 +1001,15 @@ fun TaskNodeView(
                 .padding(vertical = if (viewMode == TaskViewMode.COMPACT) 2.dp else 4.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = if (isUndocked) 8.dp else 2.dp)
         ) {
-            Column(modifier = Modifier.padding(8.dp)) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                // ROW 1: Drag Handle, Checkbox, Title & Prominent Subtask Counter Badge
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // HOLD AND RELEASE DRAG HANDLE
                     IconButton(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(36.dp)
                             .pointerInput(task.id) {
                                 detectDragGestures(
                                     onDragStart = { isUndocked = true },
@@ -1052,36 +1045,6 @@ fun TaskNodeView(
                             Icons.Default.DragIndicator,
                             contentDescription = "Hold to Undock and Drag",
                             tint = if (isUndocked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-
-                    // Explicit Pointed Up & Down Arrows
-                    IconButton(modifier = Modifier.size(36.dp), onClick = { viewModel.moveTaskVertical(task, directionUp = true) }) {
-                        Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(20.dp))
-                    }
-                    IconButton(modifier = Modifier.size(36.dp), onClick = { viewModel.moveTaskVertical(task, directionUp = false) }) {
-                        Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(20.dp))
-                    }
-
-                    // Explicit Outdent / Indent Hierarchy Arrows
-                    if (task.parentId != null) {
-                        IconButton(modifier = Modifier.size(36.dp), onClick = { viewModel.outdentTask(task) }) {
-                            Icon(Icons.Default.KeyboardDoubleArrowLeft, contentDescription = "Outdent to Parent", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                    IconButton(modifier = Modifier.size(36.dp), onClick = { viewModel.indentTask(task) }) {
-                        Icon(Icons.Default.KeyboardDoubleArrowRight, contentDescription = "Indent to Subtask", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
-                    }
-
-                    // Tree Expander
-                    IconButton(
-                        modifier = Modifier.size(36.dp),
-                        onClick = { isExpanded = !isExpanded }
-                    ) {
-                        Icon(
-                            imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowRight,
-                            contentDescription = "Expand Subtasks",
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -1089,82 +1052,152 @@ fun TaskNodeView(
                     Checkbox(
                         checked = task.isCompleted,
                         onCheckedChange = { viewModel.toggleTaskCompletion(task) },
-                        modifier = Modifier.size(36.dp)
+                        modifier = Modifier.size(32.dp)
                     )
 
-                    // Title & Indicators (Horizontal Flow)
+                    Spacer(Modifier.width(6.dp))
+
                     Column(modifier = Modifier.weight(1f).clickable { onOpenFullScreen(task) }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Text(
                                 text = task.title.ifBlank { "Untitled Task" },
-                                style = MaterialTheme.typography.bodyLarge,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
-                                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(8.dp))
                             PriorityBadge(task.priority)
 
-                            // Explicit subtask count indicator
-                            if (subtaskCount > 0) {
-                                Spacer(Modifier.width(6.dp))
-                                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(4.dp)) {
-                                    Text("[$subtaskCount subtasks]", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
-                                }
+                            Spacer(Modifier.width(6.dp))
+
+                            Surface(
+                                color = if (subtaskCount > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(
+                                    text = if (subtaskCount > 0) "$subtaskCount subtask${if (subtaskCount > 1) "s" else ""}" else "0 subtasks",
+                                    color = if (subtaskCount > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.outline,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
                             }
                         }
 
-                        // Created & Modified Date Stamps
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 2.dp)) {
-                            Text("Created: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                            Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        if (!task.notes.isNullOrBlank()) {
+                            Text(
+                                text = task.notes,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
                         }
                     }
 
-                    // Quick Actions
-                    IconButton(modifier = Modifier.size(36.dp), onClick = { onAddSubtask(task.id) }) {
-                        Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(22.dp))
-                    }
-                    IconButton(modifier = Modifier.size(36.dp), onClick = { onMoveToTarget(task) }) {
-                        Icon(Icons.Default.DriveFileMove, contentDescription = "Move Target", modifier = Modifier.size(22.dp))
-                    }
-                    IconButton(modifier = Modifier.size(36.dp), onClick = { onCopyToTarget(task) }) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy Target", modifier = Modifier.size(22.dp))
-                    }
-                    IconButton(modifier = Modifier.size(36.dp), onClick = { onOpenFullScreen(task) }) {
-                        Icon(Icons.Default.OpenInFull, contentDescription = "Open Full Screen", modifier = Modifier.size(22.dp))
-                    }
-                    IconButton(modifier = Modifier.size(36.dp), onClick = { viewModel.deleteTask(task) }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(22.dp))
+                    if (subtaskCount > 0) {
+                        IconButton(
+                            modifier = Modifier.size(36.dp),
+                            onClick = { isExpanded = !isExpanded }
+                        ) {
+                            Icon(
+                                imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowRight,
+                                contentDescription = "Expand Subtasks",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
 
-                // Horizontal Contact Chips
+                // ROW 2: Created & Modified Timestamps
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 36.dp, top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text("Created: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                }
+
+                // ROW 3: Prominent Horizontal Contact Chips
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
-                            .padding(top = 6.dp, start = 40.dp),
+                            .padding(start = 36.dp, top = 6.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         contacts.forEach { contact ->
                             Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(13.dp))
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        "${contact.displayName}: ${contact.contactPhone ?: "No #"} • ${if (contact.isContactPending) "Pending" else "Done"}",
+                                        "${contact.displayName}: ${contact.contactPhone ?: "No Phone"} • ${if (contact.isContactPending) "Pending" else "Done"}",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
+                        }
+                    }
+                }
+
+                // ROW 4: Action Toolbar (Separated to eliminate congestion)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Position and hierarchy controls
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.moveTaskVertical(task, directionUp = true) }) {
+                            Icon(Icons.Default.ArrowUpward, contentDescription = "Move Up", modifier = Modifier.size(17.dp))
+                        }
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.moveTaskVertical(task, directionUp = false) }) {
+                            Icon(Icons.Default.ArrowDownward, contentDescription = "Move Down", modifier = Modifier.size(17.dp))
+                        }
+                        if (task.parentId != null) {
+                            IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.outdentTask(task) }) {
+                                Icon(Icons.Default.KeyboardDoubleArrowLeft, contentDescription = "Outdent to Parent", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(17.dp))
+                            }
+                        }
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.indentTask(task) }) {
+                            Icon(Icons.Default.KeyboardDoubleArrowRight, contentDescription = "Indent to Subtask", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(17.dp))
+                        }
+                    }
+
+                    // Task manipulation controls
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onAddSubtask(task.id) }) {
+                            Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(17.dp))
+                        }
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onMoveToTarget(task) }) {
+                            Icon(Icons.Default.DriveFileMove, contentDescription = "Move Target", modifier = Modifier.size(17.dp))
+                        }
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyToTarget(task) }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Target", modifier = Modifier.size(17.dp))
+                        }
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onOpenFullScreen(task) }) {
+                            Icon(Icons.Default.OpenInFull, contentDescription = "Open Full Screen", modifier = Modifier.size(17.dp))
+                        }
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.deleteTask(task) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(17.dp))
                         }
                     }
                 }
@@ -1189,7 +1222,7 @@ fun TaskNodeView(
 }
 
 // -----------------------------------------------------------------------------------------
-// FULL SCREEN WORKSPACE VIEW WITH UNCONSTRAINED VERTICAL SCROLLING
+// FULL SCREEN WORKSPACE VIEW (UNCONSTRAINED SINGLE-ROOT VERTICAL SCROLL)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1222,7 +1255,6 @@ fun FullScreenTaskEditor(
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
 
-    // File Picker
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris: List<Uri> ->
@@ -1236,7 +1268,6 @@ fun FullScreenTaskEditor(
         }
     }
 
-    // Video Capture Launcher
     var tempVideoUri by remember { mutableStateOf<Uri?>(null) }
     val videoRecordLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CaptureVideo()
@@ -1251,7 +1282,6 @@ fun FullScreenTaskEditor(
         }
     }
 
-    // Contact Picker
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact()
     ) { contactUri: Uri? ->
@@ -1307,7 +1337,6 @@ fun FullScreenTaskEditor(
                         }
                     },
                     actions = {
-                        // Task-Specific Print Option
                         IconButton(onClick = {
                             PrintHelper.printTasks(
                                 context = context,
@@ -1342,7 +1371,6 @@ fun FullScreenTaskEditor(
                 )
             }
         ) { paddingValues ->
-            // Unconstrained Single-Root Vertical Scroll
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1359,7 +1387,6 @@ fun FullScreenTaskEditor(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Date Stamps
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -1368,7 +1395,6 @@ fun FullScreenTaskEditor(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // Priority Selector
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1395,7 +1421,6 @@ fun FullScreenTaskEditor(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Reminders, Due Dates & Custom Repeat
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Schedule, Due Dates & Recurrence", fontWeight = FontWeight.Bold)
@@ -1432,7 +1457,6 @@ fun FullScreenTaskEditor(
                             }
                         }
 
-                        // Custom Recurrence
                         Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             RecurrenceRule.values().forEach { rule ->
                                 FilterChip(
@@ -1458,7 +1482,6 @@ fun FullScreenTaskEditor(
                     }
                 }
 
-                // TASK CROSS-LINKING WITH DROPDOWN & HYPERLINKS
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Cross-Task Linking", fontWeight = FontWeight.Bold)
@@ -1491,7 +1514,6 @@ fun FullScreenTaskEditor(
                             }
                         }
 
-                        // Render Clickable Hyperlink Chips
                         val linkedIdList = remember(linkedIds) {
                             linkedIds.split(",").mapNotNull { it.trim().toLongOrNull() }
                         }
@@ -1527,7 +1549,6 @@ fun FullScreenTaskEditor(
                     }
                 }
 
-                // CHECKLISTS WITH INLINE TITLE EDITING, NOTES & TIMESTAMPS
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
@@ -1581,7 +1602,6 @@ fun FullScreenTaskEditor(
                                     }
                                 }
 
-                                // Checklist Timestamps
                                 Text(
                                     "Created: ${dateFormat.format(Date(item.createdTimestamp))} | Modified: ${dateFormat.format(Date(item.lastModifiedTimestamp))}",
                                     style = MaterialTheme.typography.labelSmall,
@@ -1624,7 +1644,6 @@ fun FullScreenTaskEditor(
                     }
                 }
 
-                // ATTACHMENTS & CONTACTS ENGINE
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -1671,7 +1690,6 @@ fun FullScreenTaskEditor(
                             }
                         }
 
-                        // Manual Contact Entry
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(
                                 value = manualContactName,
@@ -1706,7 +1724,6 @@ fun FullScreenTaskEditor(
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                        // Render Attachment Items
                         liveAttachments.forEach { att ->
                             var showAttNote by remember { mutableStateOf(false) }
                             var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
@@ -1726,7 +1743,6 @@ fun FullScreenTaskEditor(
                                         )
                                         Spacer(Modifier.width(8.dp))
 
-                                        // PREVIEW OF ATTACHMENT WITH ERROR PROTECTION
                                         Column(
                                             modifier = Modifier.weight(1f).clickable {
                                                 try {
@@ -1745,7 +1761,6 @@ fun FullScreenTaskEditor(
                                             Text("Created: ${dateFormat.format(Date(att.createdTimestamp))} | Modified: ${dateFormat.format(Date(att.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                         }
 
-                                        // Contact Pending/Completed Radio Button
                                         if (att.type == AttachmentType.CONTACT) {
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 RadioButton(
@@ -1859,3 +1874,4 @@ fun TaskDestinationDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
+            
