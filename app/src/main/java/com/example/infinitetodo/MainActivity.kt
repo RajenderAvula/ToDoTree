@@ -232,7 +232,6 @@ fun MainAppScaffold(
             }
         }
 
-        // Full Screen Primary Workspace
         activeFullScreenTask?.let { taskToEdit ->
             FullScreenTaskEditor(
                 task = taskToEdit,
@@ -251,7 +250,6 @@ fun MainAppScaffold(
             )
         }
 
-        // POPUP MODAL DIALOG ON OPENING HYPERLINK
         popupLinkedTask?.let { linkedTask ->
             TaskHyperlinkPopupDialog(
                 task = linkedTask,
@@ -264,7 +262,6 @@ fun MainAppScaffold(
             )
         }
 
-        // Destination Selection Dialogs
         taskForTargetMove?.let { movingTask ->
             TaskDestinationDialog(
                 title = "Move '${movingTask.title}' to...",
@@ -292,6 +289,28 @@ fun MainAppScaffold(
                 }
             )
         }
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// PROMINENT PRIORITY BADGE WITH FULL URGENT VISIBILITY
+// -----------------------------------------------------------------------------------------
+@Composable
+fun PriorityBadge(priority: TaskPriority) {
+    val bg = when (priority) {
+        TaskPriority.URGENT -> Color(0xFFD32F2F) // Bold Crimson Red for Urgent
+        TaskPriority.HIGH -> Color(0xFFF57C00)
+        TaskPriority.MEDIUM -> Color(0xFF0288D1)
+        TaskPriority.LOW -> Color(0xFF689F38)
+    }
+    Surface(color = bg, shape = RoundedCornerShape(4.dp)) {
+        Text(
+            text = priority.name,
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
     }
 }
 
@@ -403,7 +422,7 @@ fun TaskBreadcrumbBar(
 }
 
 // -----------------------------------------------------------------------------------------
-// FILTER BAR WITH TAGS, PRIORITY, STATUS & DATES
+// FILTER BAR WITH TAGS, PRIORITY (INCLUDING URGENT), STATUS & DATES
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -476,7 +495,7 @@ fun TaskFilterHeaderBar(
                     }
                 }
 
-                // Priority chips
+                // Priority chips (Low, Medium, High, URGENT clearly shown)
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Priority:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
                     TaskPriority.values().forEach { priority ->
@@ -487,7 +506,10 @@ fun TaskFilterHeaderBar(
                                 if (priority in current) current.remove(priority) else current.add(priority)
                                 viewModel.updateFilter(filterState.copy(priorities = current))
                             },
-                            label = { Text(priority.name) }
+                            label = { Text(priority.name) },
+                            colors = if (priority == TaskPriority.URGENT && priority in filterState.priorities) {
+                                FilterChipDefaults.filterChipColors(containerColor = Color(0xFFFFCDD2))
+                            } else FilterChipDefaults.filterChipColors()
                         )
                     }
                 }
@@ -559,7 +581,7 @@ fun TaskFilterHeaderBar(
 }
 
 // -----------------------------------------------------------------------------------------
-// 1. HOME DASHBOARD TAB (WITH COMPLETE TASKS SUMMARY & METRICS)
+// 1. HOME DASHBOARD TAB (WITH ACCURATE URGENT AND PRIORITY SUMMARY)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
@@ -575,7 +597,6 @@ fun HomeDashboardTab(
     val filterState by viewModel.filterState.collectAsState()
     val context = LocalContext.current
 
-    // Summary Metrics
     val totalCreated = allTasks.size
     val totalCompleted = allTasks.count { it.isCompleted }
     val totalPending = totalCreated - totalCompleted
@@ -604,7 +625,6 @@ fun HomeDashboardTab(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // COMPREHENSIVE TASKS SUMMARY DASHBOARD
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -631,7 +651,7 @@ fun HomeDashboardTab(
                         HorizontalDivider()
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Urgent: $urgentCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F))
+                            Text("Urgent: $urgentCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = Color(0xFFD32F2F))
                             Text("High: $highCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFF57C00))
                             Text("Med: $medCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF0288D1))
                             Text("Low: $lowCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF689F38))
@@ -698,7 +718,6 @@ fun HomeDashboardTab(
                             }
                         }
 
-                        // HORIZONTAL CONTACT BAR ALWAYS VISIBLE
                         if (contacts.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -736,7 +755,7 @@ fun HomeDashboardTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 2. TASKS TREE TAB (WITH FILTER & SEARCH APPLIED, HIGHLIGHTED TERMS & LAYER DEPTH)
+// 2. TASKS TREE TAB (WITH URGENT VISIBILITY, SEARCH HIGHLIGHTING & LAYER DEPTH)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
@@ -757,7 +776,6 @@ fun TasksTreeTab(
     val filterState by viewModel.filterState.collectAsState()
     val context = LocalContext.current
 
-    // Ensure search and filter results appear right inside the Tasks tab
     val displayedTasks = remember(activeTasks, searchResults, searchQuery, filterState) {
         val base = if (searchQuery.isNotBlank()) searchResults else activeTasks
         base.filter { task ->
@@ -771,7 +789,6 @@ fun TasksTreeTab(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
-
         TaskBreadcrumbBar(viewModel, focusedParentId) { onFocusParent(it) }
 
         Row(
@@ -826,7 +843,7 @@ fun TasksTreeTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 3. CALENDAR AGENDA TAB (WITH COMPLETE HIERARCHY PATH ON TOP)
+// 3. CALENDAR AGENDA TAB (SHOWS COMPLETE HIERARCHY PATH ON TOP)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun CalendarAgendaTab(
@@ -843,7 +860,6 @@ fun CalendarAgendaTab(
 
     val scheduledTasks = remember(allTasks, searchQuery, filterState) {
         allTasks.filter { task ->
-            val ts = task.createdTimestamp
             (searchQuery.isBlank() || task.title.contains(searchQuery, true)) &&
             (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
             (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
@@ -888,7 +904,6 @@ fun CalendarAgendaTab(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        // HIERARCHY PATH ON TOP
                         if (hierarchyPath.isNotBlank()) {
                             Text(
                                 text = "Path: $hierarchyPath",
@@ -977,7 +992,6 @@ fun GanttChartTab(
 
                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                     Column(modifier = Modifier.padding(10.dp)) {
-                        // COMPLETE HIERARCHY PATH ON TOP
                         if (hierarchyPath.isNotBlank()) {
                             Text(
                                 text = "Path: $hierarchyPath",
@@ -995,7 +1009,6 @@ fun GanttChartTab(
 
                         Spacer(Modifier.height(4.dp))
 
-                        // Timeline Bar
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1015,13 +1028,12 @@ fun GanttChartTab(
                                             TaskPriority.URGENT -> Color(0xFFD32F2F)
                                             TaskPriority.HIGH -> Color(0xFFFB8C00)
                                             TaskPriority.MEDIUM -> Color(0xFF0288D1)
-                                            TaskPriority.LOW -> Color(0xFF7CB342)
+                                            TaskPriority.LOW -> Color(0xFF689F38)
                                         }
                                     )
                             )
                         }
 
-                        // ACCORDION "SHOW DETAILS" BUTTON
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1217,7 +1229,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (HIGHLIGHTED TEXT, VISIBLE CONTACTS & LAYER COUNTER)
+// REUSABLE TASK TREE ROW (WITH PROMINENT URGENT BADGE & LAYER COUNTER)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -1277,7 +1289,7 @@ fun TaskNodeView(
             elevation = CardDefaults.cardElevation(defaultElevation = if (isUndocked) 8.dp else 2.dp)
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
-                // ROW 1: Drag, Checkbox, Title & LAYER COUNTER BADGE
+                // ROW 1: Drag, Checkbox, Title & LAYER COUNTER BADGE + URGENT BADGE
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -1337,7 +1349,6 @@ fun TaskNodeView(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            // HIGHLIGHTED SEARCH RESULT TITLE
                             HighlightedText(
                                 text = task.title.ifBlank { "Untitled Task" },
                                 query = searchQuery,
@@ -1350,7 +1361,6 @@ fun TaskNodeView(
 
                             Spacer(Modifier.width(6.dp))
 
-                            // HOW MANY LAYERS ARE PRESENT BADGE
                             Surface(
                                 color = MaterialTheme.colorScheme.tertiaryContainer,
                                 shape = RoundedCornerShape(12.dp)
@@ -1553,7 +1563,7 @@ fun TaskHyperlinkPopupDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// FULL SCREEN WORKSPACE VIEW WITH TAGS & DECONGESTED CHECKLIST RENAMING
+// FULL SCREEN WORKSPACE VIEW WITH DATE+CLOCK REPEAT & COMPLETE URGENT SELECTOR
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1575,7 +1585,7 @@ fun FullScreenTaskEditor(
     var dueMs by remember { mutableStateOf(task.dueTimestamp) }
     var repeatRule by remember { mutableStateOf(task.repeatRule) }
     var repeatIntervalDays by remember { mutableStateOf(task.repeatIntervalDays) }
-    var repeatTimeEpochMs by remember { mutableStateOf(task.repeatTimeEpochMs) }
+    var repeatTimestampMs by remember { mutableStateOf(task.repeatTimestampMs) }
     var linkedIds by remember { mutableStateOf(task.linkedTaskIds ?: "") }
 
     var isRecordingAudio by remember { mutableStateOf(false) }
@@ -1694,7 +1704,7 @@ fun FullScreenTaskEditor(
                                     dueEpochMs = dueMs,
                                     repeatRule = repeatRule,
                                     repeatIntervalDays = repeatIntervalDays,
-                                    repeatTimeEpochMs = repeatTimeEpochMs,
+                                    repeatTimestampMs = repeatTimestampMs,
                                     linkedTaskIds = linkedIds
                                 )
                                 onDismiss()
@@ -1722,12 +1732,11 @@ fun FullScreenTaskEditor(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // TAGS EDITING FIELD
                 OutlinedTextField(
                     value = tagsText,
                     onValueChange = { tagsText = it },
                     label = { Text("Tags (comma separated)") },
-                    placeholder = { Text("e.g. work, shopping, projectX") },
+                    placeholder = { Text("e.g. work, shopping, urgent") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1740,6 +1749,7 @@ fun FullScreenTaskEditor(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
+                // PRIORITY SELECTOR (EXPLICIT URGENT OPTION)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1751,7 +1761,13 @@ fun FullScreenTaskEditor(
                             FilterChip(
                                 selected = priority == p,
                                 onClick = { priority = p },
-                                label = { Text(p.name) }
+                                label = { Text(p.name) },
+                                colors = if (p == TaskPriority.URGENT && priority == p) {
+                                    FilterChipDefaults.filterChipColors(
+                                        containerColor = Color(0xFFD32F2F),
+                                        labelColor = Color.White
+                                    )
+                                } else FilterChipDefaults.filterChipColors()
                             )
                         }
                     }
@@ -1766,7 +1782,7 @@ fun FullScreenTaskEditor(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // SCHEDULE, DUE DATES & REPEAT WITH TIME PICKER
+                // SCHEDULE, DUE DATES & RECURRENCE WITH DATE & TIME PICKER
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Schedule, Due Dates & Recurrence", fontWeight = FontWeight.Bold)
@@ -1803,7 +1819,7 @@ fun FullScreenTaskEditor(
                             }
                         }
 
-                        // RECURRENCE & TIME PICKER (e.g. 6:00 AM / 5:00 PM)
+                        // REPEAT CHIPS
                         Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             RecurrenceRule.values().forEach { rule ->
                                 FilterChip(
@@ -1814,33 +1830,45 @@ fun FullScreenTaskEditor(
                             }
                         }
 
+                        // REPEAT WITH DATE PICKER ON CALENDAR & TIME PICKER ON CLOCK
                         if (repeatRule != RecurrenceRule.NONE) {
-                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(
                                     onClick = {
-                                        val cal = Calendar.getInstance()
-                                        TimePickerDialog(context, { _, h, min ->
-                                            cal.set(Calendar.HOUR_OF_DAY, h)
-                                            cal.set(Calendar.MINUTE, min)
-                                            repeatTimeEpochMs = cal.timeInMillis
-                                        }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), false).show()
-                                    }
+                                        val cal = Calendar.getInstance().apply {
+                                            repeatTimestampMs?.let { timeInMillis = it }
+                                        }
+                                        // 1. Calendar Date Picker
+                                        DatePickerDialog(context, { _, y, m, d ->
+                                            // 2. Clock Time Picker
+                                            TimePickerDialog(context, { _, h, min ->
+                                                cal.set(y, m, d, h, min)
+                                                repeatTimestampMs = cal.timeInMillis
+                                            }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), false).show()
+                                        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    val timeFmt = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                                    Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text(repeatTimeEpochMs?.let { "At: ${timeFmt.format(Date(it))}" } ?: "Set Repeat Time (e.g. 6 AM)")
+                                    Text(
+                                        text = repeatTimestampMs?.let {
+                                            "Repeat Anchor: ${dateFormat.format(Date(it))}"
+                                        } ?: "Pick Repeat Date (Calendar) & Time (Clock)"
+                                    )
                                 }
 
                                 if (repeatRule == RecurrenceRule.CUSTOM) {
-                                    Text("Every", style = MaterialTheme.typography.bodyMedium)
-                                    OutlinedTextField(
-                                        value = repeatIntervalDays.toString(),
-                                        onValueChange = { repeatIntervalDays = it.toIntOrNull() ?: 1 },
-                                        modifier = Modifier.width(60.dp),
-                                        singleLine = true
-                                    )
-                                    Text("days", style = MaterialTheme.typography.bodyMedium)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("Interval: Every ", style = MaterialTheme.typography.bodyMedium)
+                                        OutlinedTextField(
+                                            value = repeatIntervalDays.toString(),
+                                            onValueChange = { repeatIntervalDays = it.toIntOrNull() ?: 1 },
+                                            modifier = Modifier.width(60.dp),
+                                            singleLine = true
+                                        )
+                                        Text(" days", style = MaterialTheme.typography.bodyMedium)
+                                    }
                                 }
                             }
                         }
@@ -1891,7 +1919,6 @@ fun FullScreenTaskEditor(
                                 linkedIdList.forEach { id ->
                                     val linkedTask = allTasks.find { it.id == id }
                                     AssistChip(
-                                        // CLICKING OPENS POPUP MODAL DIALOG
                                         onClick = { onOpenLinkedTaskPopup(id) },
                                         leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                         label = {
@@ -2000,7 +2027,7 @@ fun FullScreenTaskEditor(
                     }
                 }
 
-                // ATTACHMENTS & CONTACTS WITH DATES
+                // ATTACHMENTS & CONTACTS ENGINE
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2112,7 +2139,6 @@ fun FullScreenTaskEditor(
                                         ) {
                                             Text(att.displayName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                                             att.contactPhone?.let { Text("Phone: $it", style = MaterialTheme.typography.bodySmall) }
-                                            // VISIBLE CREATED AND MODIFIED TIMESTAMPS FOR CONTACTS & ATTACHMENTS
                                             Text("Created: ${dateFormat.format(Date(att.createdTimestamp))} | Modified: ${dateFormat.format(Date(att.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                         }
 
@@ -2151,27 +2177,8 @@ fun FullScreenTaskEditor(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE HELPER UI COMPONENTS
+// DESTINATION PICKER DIALOG (MOVE / COPY)
 // -----------------------------------------------------------------------------------------
-@Composable
-fun PriorityBadge(priority: TaskPriority) {
-    val bg = when (priority) {
-        TaskPriority.URGENT -> Color(0xFFD32F2F)
-        TaskPriority.HIGH -> Color(0xFFF57C00)
-        TaskPriority.MEDIUM -> Color(0xFF0288D1)
-        TaskPriority.LOW -> Color(0xFF689F38)
-    }
-    Surface(color = bg, shape = RoundedCornerShape(4.dp)) {
-        Text(
-            text = priority.name,
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-        )
-    }
-}
-
 @Composable
 fun TaskDestinationDialog(
     title: String,
