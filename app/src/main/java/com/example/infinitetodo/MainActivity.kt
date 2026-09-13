@@ -30,7 +30,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -43,7 +42,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -119,7 +117,6 @@ fun MainAppScaffold(
     var popupLinkedTask by remember { mutableStateOf<TaskItem?>(null) }
     val scope = rememberCoroutineScope()
 
-    var focusedParentId by remember { mutableStateOf<Long?>(null) }
     var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }
     var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }
 
@@ -153,10 +150,7 @@ fun MainAppScaffold(
                 AppNavTab.values().forEach { tab ->
                     NavigationBarItem(
                         selected = selectedTab == tab,
-                        onClick = {
-                            selectedTab = tab
-                            if (tab == AppNavTab.HOME) focusedParentId = null
-                        },
+                        onClick = { selectedTab = tab },
                         icon = { Icon(tab.icon, contentDescription = tab.title) },
                         label = { Text(tab.title) },
                         alwaysShowLabel = true
@@ -169,7 +163,7 @@ fun MainAppScaffold(
                 FloatingActionButton(
                     onClick = {
                         scope.launch {
-                            val draft = viewModel.createInitialDraftTask(focusedParentId)
+                            val draft = viewModel.createInitialDraftTask(null)
                             activeFullScreenTask = draft
                         }
                     },
@@ -189,21 +183,11 @@ fun MainAppScaffold(
             when (selectedTab) {
                 AppNavTab.HOME -> HomeDashboardTab(
                     viewModel = viewModel,
-                    focusedParentId = focusedParentId,
-                    onFocusParent = { focusedParentId = it },
-                    onOpenTask = { activeFullScreenTask = it },
-                    onAddNewTask = {
-                        scope.launch {
-                            val draft = viewModel.createInitialDraftTask(focusedParentId)
-                            activeFullScreenTask = draft
-                        }
-                    }
+                    onOpenTask = { activeFullScreenTask = it }
                 )
                 AppNavTab.TASKS -> TasksTreeTab(
                     viewModel = viewModel,
                     viewMode = viewMode,
-                    focusedParentId = focusedParentId,
-                    onFocusParent = { focusedParentId = it },
                     onAddSubtask = { parentId ->
                         scope.launch {
                             val draft = viewModel.createInitialDraftTask(parentId)
@@ -253,7 +237,6 @@ fun MainAppScaffold(
         popupLinkedTask?.let { linkedTask ->
             TaskHyperlinkPopupDialog(
                 task = linkedTask,
-                viewModel = viewModel,
                 onDismiss = { popupLinkedTask = null },
                 onOpenInFullEditor = {
                     popupLinkedTask = null
@@ -351,65 +334,6 @@ fun HighlightedText(
     }
 
     Text(annotated, style = style, fontWeight = fontWeight)
-}
-
-@Composable
-fun TaskBreadcrumbBar(
-    viewModel: TaskViewModel,
-    focusedParentId: Long?,
-    onSelectAncestor: (Long?) -> Unit
-) {
-    var trail by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(focusedParentId) {
-        scope.launch {
-            trail = viewModel.getBreadcrumbTrail(focusedParentId)
-        }
-    }
-
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Root",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = if (focusedParentId == null) FontWeight.Bold else FontWeight.Normal,
-                color = if (focusedParentId == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                modifier = Modifier
-                    .clickable { onSelectAncestor(null) }
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-            )
-
-            trail.forEach { task ->
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp),
-                    tint = MaterialTheme.colorScheme.outline
-                )
-
-                val isCurrent = task.id == focusedParentId
-                Text(
-                    text = task.title.ifBlank { "Task #${task.id}" },
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                    modifier = Modifier
-                        .clickable { onSelectAncestor(task.id) }
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                )
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -567,10 +491,7 @@ fun TaskFilterHeaderBar(
 @Composable
 fun HomeDashboardTab(
     viewModel: TaskViewModel,
-    focusedParentId: Long?,
-    onFocusParent: (Long?) -> Unit,
-    onOpenTask: (TaskItem) -> Unit,
-    onAddNewTask: () -> Unit
+    onOpenTask: (TaskItem) -> Unit
 ) {
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
     var searchQuery by remember { mutableStateOf("") }
@@ -739,23 +660,19 @@ fun HomeDashboardTab(
 fun TasksTreeTab(
     viewModel: TaskViewModel,
     viewMode: TaskViewMode,
-    focusedParentId: Long?,
-    onFocusParent: (Long?) -> Unit,
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
     onMoveToTarget: (TaskItem) -> Unit,
     onCopyToTarget: (TaskItem) -> Unit
 ) {
-    val activeTasks by (if (focusedParentId == null) viewModel.rootTasks else viewModel.getSubtasks(focusedParentId))
-        .collectAsState(initial = emptyList())
-
+    val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())
     var searchQuery by remember { mutableStateOf("") }
     val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
     val filterState by viewModel.filterState.collectAsState()
     val context = LocalContext.current
 
-    val displayedTasks = remember(activeTasks, searchResults, searchQuery, filterState) {
-        val base = if (searchQuery.isNotBlank()) searchResults else activeTasks
+    val displayedTasks = remember(rootTasks, searchResults, searchQuery, filterState) {
+        val base = if (searchQuery.isNotBlank()) searchResults else rootTasks
         base.filter { task ->
             (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
             (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
@@ -767,7 +684,6 @@ fun TasksTreeTab(
 
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
-        TaskBreadcrumbBar(viewModel, focusedParentId) { onFocusParent(it) }
 
         Row(
             modifier = Modifier
@@ -776,11 +692,7 @@ fun TasksTreeTab(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = if (focusedParentId == null) "Hierarchical Tasks" else "Subtask Workspace",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            Text("Hierarchical Tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row {
                 IconButton(onClick = {
                     viewModel.syncAllTasksToCalendar { count ->
@@ -809,7 +721,6 @@ fun TasksTreeTab(
                     viewMode = viewMode,
                     searchQuery = searchQuery,
                     viewModel = viewModel,
-                    onDrillInto = { onFocusParent(task.id) },
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
                     onMoveToTarget = onMoveToTarget,
@@ -1204,7 +1115,6 @@ fun TaskNodeView(
     viewMode: TaskViewMode,
     searchQuery: String,
     viewModel: TaskViewModel,
-    onDrillInto: () -> Unit,
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
     onMoveToTarget: (TaskItem) -> Unit,
@@ -1219,7 +1129,6 @@ fun TaskNodeView(
 
     val subtasks by viewModel.getSubtasks(task.id).collectAsState(initial = emptyList())
     val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
-    val checklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
     val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
 
@@ -1309,7 +1218,7 @@ fun TaskNodeView(
 
                     Spacer(Modifier.width(6.dp))
 
-                    Column(modifier = Modifier.weight(1f).clickable { onDrillInto() }) {
+                    Column(modifier = Modifier.weight(1f).clickable { onOpenFullScreen(task) }) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
@@ -1465,7 +1374,6 @@ fun TaskNodeView(
                     viewMode = viewMode,
                     searchQuery = searchQuery,
                     viewModel = viewModel,
-                    onDrillInto = { },
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
                     onMoveToTarget = onMoveToTarget,
@@ -1479,7 +1387,6 @@ fun TaskNodeView(
 @Composable
 fun TaskHyperlinkPopupDialog(
     task: TaskItem,
-    viewModel: TaskViewModel,
     onDismiss: () -> Unit,
     onOpenInFullEditor: () -> Unit
 ) {
