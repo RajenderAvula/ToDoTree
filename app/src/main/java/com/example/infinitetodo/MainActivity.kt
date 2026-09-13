@@ -215,7 +215,6 @@ fun MainAppScaffold(
             }
         }
 
-        // Dedicated Task Workspace (Supports Primary + Referenced Cross Tab)
         activeFullScreenTask?.let { taskToEdit ->
             key(taskToEdit.id) {
                 FullScreenTaskWorkspaceDialog(
@@ -259,7 +258,7 @@ fun MainAppScaffold(
 @Composable
 fun PriorityBadge(priority: TaskPriority) {
     val bg = when (priority) {
-        TaskPriority.URGENT -> Color(0xFFD32F2F) // High-contrast Crimson Red
+        TaskPriority.URGENT -> Color(0xFFD32F2F)
         TaskPriority.HIGH -> Color(0xFFF57C00)
         TaskPriority.MEDIUM -> Color(0xFF0288D1)
         TaskPriority.LOW -> Color(0xFF689F38)
@@ -562,7 +561,6 @@ fun HomeDashboardTab(
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        // EXPLICIT PROMINENT BADGE ROW (URGENT IS NEVER CLIPPED)
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
                             PriorityBadge(task.priority)
                             if (subtaskCount > 0) {
@@ -1153,7 +1151,7 @@ fun TaskNodeView(
             elevation = CardDefaults.cardElevation(defaultElevation = if (isUndocked) 8.dp else 2.dp)
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
-                // ROW 1: PRIORITY BADGE (ALWAYS VISIBLE & NEVER CLIPPED) + LAYER PILL
+                // ROW 1: PRIORITY BADGE + LAYER PILL
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
                     PriorityBadge(task.priority)
                     Spacer(Modifier.width(8.dp))
@@ -1283,7 +1281,7 @@ fun TaskNodeView(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // ROW 4: Contacts Chips (Always Visible Horizontally)
+                // ROW 4: Contacts Chips
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -1379,7 +1377,7 @@ fun TaskNodeView(
 }
 
 // -----------------------------------------------------------------------------------------
-// DEDICATED FULL SCREEN WORKSPACE DIALOG (WITH REFERENCED CROSS TAB)
+// DEDICATED FULL SCREEN WORKSPACE DIALOG (PRIMARY & REFERENCED TABS)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1388,10 +1386,9 @@ fun FullScreenTaskWorkspaceDialog(
     viewModel: TaskViewModel,
     onDismiss: () -> Unit
 ) {
-    // Current active task in workspace and optional referenced task
     var primaryTask by remember { mutableStateOf(initialTask) }
     var referencedTask by remember { mutableStateOf<TaskItem?>(null) }
-    var selectedWorkspaceTab by remember { mutableIntStateOf(0) } // 0 = Primary, 1 = Referenced
+    var selectedWorkspaceTab by remember { mutableIntStateOf(0) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1411,7 +1408,6 @@ fun FullScreenTaskWorkspaceDialog(
                         }
                     )
 
-                    // Tab bar appears if a referenced cross-task is active
                     if (referencedTask != null) {
                         TabRow(selectedTabIndex = selectedWorkspaceTab) {
                             Tab(
@@ -1470,7 +1466,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK EDITOR VIEW WITH EXPANDABLE CHECKLISTS & BIDIRECTIONAL LINKING
+// SINGLE TASK EDITOR VIEW (WITH RESTORED DEDICATED EXPANDABLE TEXT BOXES)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1580,7 +1576,6 @@ fun SingleTaskEditorView(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // TOP CONTROL STRIP: PRINT & SAVE
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1630,7 +1625,7 @@ fun SingleTaskEditorView(
                             repeatTimestampMs = repeatTimestampMs
                         )
                     )
-                    Toast.makeText(context, "Saved successfully ✓", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Saved changes ✓", Toast.LENGTH_SHORT).show()
                 }
             ) {
                 Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1664,7 +1659,6 @@ fun SingleTaskEditorView(
             Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
         }
 
-        // EXPLICIT PRIORITY SELECTOR (WITH CRISP URGENT OPTION)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1697,7 +1691,6 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // DATES & RECURRENCE
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Schedule, Due Dates & Recurrence", fontWeight = FontWeight.Bold)
@@ -1729,7 +1722,7 @@ fun SingleTaskEditorView(
                             }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
                         },
                         modifier = Modifier.weight(1f)
-                    ) {
+                            ) {
                         Text(dueMs?.let { "Due: ${dateFormat.format(Date(it))}" } ?: "Set Due Date")
                     }
                 }
@@ -1786,7 +1779,6 @@ fun SingleTaskEditorView(
             }
         }
 
-        // AUTOMATIC BIDIRECTIONAL CROSS-TASK LINKING WITH REFERENCED TAB OPENING
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Cross-Task Linking (Bidirectional)", fontWeight = FontWeight.Bold)
@@ -1809,7 +1801,6 @@ fun SingleTaskEditorView(
                             DropdownMenuItem(
                                 text = { Text(other.title.ifBlank { "Task #${other.id}" }) },
                                 onClick = {
-                                    // AUTOMATICALLY ESTABLISHES BIDIRECTIONAL LINK IN BOTH TASKS
                                     viewModel.linkTasksBidirectional(task.id, other.id)
                                     showLinkDropdown = false
                                 }
@@ -1830,7 +1821,6 @@ fun SingleTaskEditorView(
                         linkedIdList.forEach { id ->
                             val linkedTask = allTasks.find { it.id == id }
                             AssistChip(
-                                // OPENS LINKED TASK IN REFERENCED CROSS TAB
                                 onClick = {
                                     scope.launch {
                                         val target = viewModel.getTaskById(id)
@@ -1852,7 +1842,6 @@ fun SingleTaskEditorView(
                                 },
                                 trailingIcon = {
                                     IconButton(modifier = Modifier.size(16.dp), onClick = {
-                                        // AUTOMATICALLY REMOVES LINK FROM BOTH SIDES
                                         viewModel.unlinkTasksBidirectional(task.id, id)
                                     }) {
                                         Icon(Icons.Default.Clear, contentDescription = "Unlink")
@@ -1865,14 +1854,18 @@ fun SingleTaskEditorView(
             }
         }
 
-        // CHECKLISTS WITH EXPANDABLE TEXT BOX FOR NICE EDITING
+        // CHECKLISTS WITH RESTORED DEDICATED EXPANDABLE TEXT BOX FOR NOTES
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
 
                 liveChecklist.forEach { item ->
-                    var isRenamingChecklist by remember { mutableStateOf(false) }
-                    var renameText by remember(item.text) { mutableStateOf(item.text) }
+                    var isRenamingTitle by remember { mutableStateOf(false) }
+                    var renameTitleText by remember(item.text) { mutableStateOf(item.text) }
+
+                    // DEDICATED EXPANDABLE NOTE STATE FOR CHECKLIST ITEM
+                    var isNoteExpanded by remember { mutableStateOf(false) }
+                    var itemNoteText by remember(item.notes) { mutableStateOf(item.notes ?: "") }
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -1886,26 +1879,23 @@ fun SingleTaskEditorView(
                                     modifier = Modifier.padding(top = 2.dp)
                                 )
 
-                                if (isRenamingChecklist) {
-                                    // EXPANDABLE EDIT TEXT BOX
+                                if (isRenamingTitle) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         OutlinedTextField(
-                                            value = renameText,
-                                            onValueChange = { renameText = it },
+                                            value = renameTitleText,
+                                            onValueChange = { renameTitleText = it },
                                             modifier = Modifier.fillMaxWidth(),
-                                            minLines = 2,
-                                            maxLines = 6,
-                                            singleLine = false
+                                            singleLine = true
                                         )
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.End
                                         ) {
-                                            TextButton(onClick = { isRenamingChecklist = false }) { Text("Cancel") }
+                                            TextButton(onClick = { isRenamingTitle = false }) { Text("Cancel") }
                                             Spacer(Modifier.width(8.dp))
                                             Button(onClick = {
-                                                viewModel.updateChecklistItem(item, renameText, item.notes, item.isDone)
-                                                isRenamingChecklist = false
+                                                viewModel.updateChecklistItem(item, renameTitleText, item.notes, item.isDone)
+                                                isRenamingTitle = false
                                             }) { Text("Save") }
                                         }
                                     }
@@ -1916,12 +1906,22 @@ fun SingleTaskEditorView(
                                         textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .clickable { isRenamingChecklist = true }
+                                            .clickable { isRenamingTitle = true }
                                             .padding(top = 8.dp)
                                     )
-                                    IconButton(onClick = { isRenamingChecklist = true }) {
+                                    IconButton(onClick = { isRenamingTitle = true }) {
                                         Icon(Icons.Default.Edit, contentDescription = "Edit Text", modifier = Modifier.size(18.dp))
                                     }
+                                }
+
+                                // Dedicated Note/Details button to expand/collapse dedicated text box
+                                IconButton(onClick = { isNoteExpanded = !isNoteExpanded }) {
+                                    Icon(
+                                        Icons.Default.NoteAlt,
+                                        contentDescription = "Expand Note",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = if (!item.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    )
                                 }
 
                                 IconButton(onClick = { viewModel.moveChecklistItem(item, true) }) {
@@ -1935,6 +1935,25 @@ fun SingleTaskEditorView(
                                 }
                             }
 
+                            // RESTORED DEDICATED EXPANDABLE TEXT BOX FOR CHECKLIST ITEM
+                            AnimatedVisibility(visible = isNoteExpanded) {
+                                Column(modifier = Modifier.padding(start = 36.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    OutlinedTextField(
+                                        value = itemNoteText,
+                                        onValueChange = {
+                                            itemNoteText = it
+                                            viewModel.updateChecklistItem(item, item.text, it, item.isDone)
+                                        },
+                                        label = { Text("Checklist Item Note / Description") },
+                                        placeholder = { Text("Write extra instructions, links, or notes for this item...") },
+                                        minLines = 2,
+                                        maxLines = 6,
+                                        singleLine = false,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+
                             Text(
                                 "Created: ${dateFormat.format(Date(item.createdTimestamp))} | Modified: ${dateFormat.format(Date(item.lastModifiedTimestamp))}",
                                 style = MaterialTheme.typography.labelSmall,
@@ -1945,12 +1964,12 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                // EXPANDABLE INPUT TEXT BOX FOR NEW CHECKLIST ITEMS
+                // Expandable new checklist input
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedTextField(
                         value = newChecklistText,
                         onValueChange = { newChecklistText = it },
-                        placeholder = { Text("New checklist item (expandable multi-line)...") },
+                        placeholder = { Text("New checklist item...") },
                         minLines = 2,
                         maxLines = 5,
                         singleLine = false,
@@ -1972,7 +1991,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // ATTACHMENTS & CONTACTS ENGINE
+        // ATTACHMENTS & CONTACTS (WITH RESTORED DEDICATED EXPANDABLE TEXT BOXES)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2054,8 +2073,12 @@ fun SingleTaskEditorView(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                 liveAttachments.forEach { att ->
+                    // DEDICATED EXPANDABLE TEXT BOX STATE PER ATTACHMENT
+                    var isAttachmentNoteExpanded by remember { mutableStateOf(false) }
+                    var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
+
                     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Column(modifier = Modifier.padding(8.dp)) {
+                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = when (att.type) {
@@ -2099,6 +2122,15 @@ fun SingleTaskEditorView(
                                     }
                                 }
 
+                                // Dedicated button to toggle the expandable note text box
+                                IconButton(onClick = { isAttachmentNoteExpanded = !isAttachmentNoteExpanded }) {
+                                    Icon(
+                                        Icons.Default.EditNote,
+                                        contentDescription = "Expand/Edit Note",
+                                        tint = if (!att.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+
                                 IconButton(onClick = { viewModel.moveAttachment(att, true) }) {
                                     Icon(Icons.Default.ArrowUpward, contentDescription = "Up")
                                 }
@@ -2107,6 +2139,25 @@ fun SingleTaskEditorView(
                                 }
                                 IconButton(onClick = { viewModel.deleteAttachment(att) }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+
+                            // RESTORED DEDICATED EXPANDABLE TEXT BOX FOR ATTACHMENT NOTE
+                            AnimatedVisibility(visible = isAttachmentNoteExpanded) {
+                                Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    OutlinedTextField(
+                                        value = attNoteText,
+                                        onValueChange = {
+                                            attNoteText = it
+                                            viewModel.updateAttachment(att, att.displayName, it, att.contactPhone, att.isContactPending)
+                                        },
+                                        label = { Text("Attachment Note / Details") },
+                                        placeholder = { Text("Write notes, description or references for this attachment...") },
+                                        minLines = 2,
+                                        maxLines = 6,
+                                        singleLine = false,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
                                 }
                             }
                         }
@@ -2119,9 +2170,6 @@ fun SingleTaskEditorView(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// DESTINATION PICKER DIALOG (MOVE / COPY)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskDestinationDialog(
     title: String,
