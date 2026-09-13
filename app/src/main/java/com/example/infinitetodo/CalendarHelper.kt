@@ -1,120 +1,164 @@
 package com.example.infinitetodo
 
+import android.accounts.Account
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.os.Bundle
 import android.provider.CalendarContract
+import android.util.Log
 import java.util.Calendar
 import java.util.TimeZone
 
 object CalendarHelper {
 
-    fun getPrimaryGoogleCalendarId(context: Context): Long? {
+    data class CalendarTarget(
+        val id: Long,
+        val accountName: String,
+        val accountType: String
+    )
+
+    /**
+     * Resolves a calendar target that actively syncs with Google Calendar.
+     * Prioritizes accountType == "com.google" with write access.
+     */
+    fun getPrimaryGoogleCalendar(context: Context): CalendarTarget? {
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
-            CalendarContract.Calendars.IS_PRIMARY,
-            CalendarContract.Calendars.ACCOUNT_TYPE
+            CalendarContract.Calendars.ACCOUNT_NAME,
+            CalendarContract.Calendars.ACCOUNT_TYPE,
+            CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
+            CalendarContract.Calendars.VISIBLE,
+            CalendarContract.Calendars.SYNC_EVENTS
         )
         val uri = CalendarContract.Calendars.CONTENT_URI
-        val cursor = context.contentResolver.query(uri, projection, null, null, null)
 
-        cursor?.use {
-            var fallbackId: Long? = null
-            while (it.moveToNext()) {
-                val id = it.getLong(0)
-                val isPrimary = it.getInt(1)
-                val accountType = it.getString(2)
+        var googleTarget: CalendarTarget? = null
+        var fallbackTarget: CalendarTarget? = null
 
-                if (isPrimary == 1) return id
-                if (accountType == "com.google") fallbackId = id
+        try {
+            val cursor = context.contentResolver.query(uri, projection, null, null, null)
+            cursor?.use {
+                while (it.moveToNext()) {
+                    val id = it.getLong(0)
+                    val accountName = it.getString(1) ?: ""
+                    val accountType = it.getString(2) ?: ""
+                    val accessLevel = it.getInt(3)
+                    val visible = it.getInt(4)
+                    val syncEvents = it.getInt(5)
+
+                    // Must have write permissions (CONTRIBUTOR = 500, OWNER = 700)
+                    if (accessLevel >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR) {
+                        if (accountType.equals("com.google", ignoreCase = true)) {
+                            // Perfect match: Active Google Account Calendar
+                            return CalendarTarget(id, accountName, accountType)
+                        } else if (fallbackTarget == null && visible == 1) {
+                            fallbackTarget = CalendarTarget(id, accountName, accountType)
+                        }
+                    }
+                }
             }
-            if (fallbackId != null) return fallbackId
+        } catch (e: Exception) {
+            Log.e("CalendarHelper", "Error resolving calendar target", e)
         }
-        return 1L
-    }
 
-    private fun normalizeToMidnightUtc(epochMs: Long): Long {
-        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-            timeInMillis = epochMs
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        return cal.timeInMillis
+        return googleTarget ?: fallbackTarget
     }
 
     fun insertEvent(
         context: Context,
-        calendarId: Long,
+        target: CalendarTarget,
         title: String,
-        startTimeMs: Long,
-        notes: String?,
-        isAllDay: Boolean = false
+        createdTimestampMs: Long,
+        notes: String?
     ): Long? {
         return try {
+            // Anchor strictly to created timestamp (1 hour duration)
+            val startTime = createdTimestampMs
+            val endTime = createdTimestampMs + 3600000L
+            val timeZone = TimeZone.getDefault().id
+
             val values = ContentValues().apply {
-                if (isAllDay) {
-                    val startUtc = normalizeToMidnightUtc(startTimeMs)
-                    val endUtc = startUtc + 86400000L
-                    put(CalendarContract.Events.DTSTART, startUtc)
-                    put(CalendarContract.Events.DTEND, endUtc)
-                    put(CalendarContract.Events.ALL_DAY, 1)
-                    put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
-                } else {
-                    put(CalendarContract.Events.DTSTART, startTimeMs)
-                    put(CalendarContract.Events.DTEND, startTimeMs + 3600000L)
-                    put(CalendarContract.Events.ALL_DAY, 0)
-                    put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
-                }
+                put(CalendarContract.Events.CALENDAR_ID, target.id)
                 put(CalendarContract.Events.TITLE, title)
                 put(CalendarContract.Events.DESCRIPTION, notes ?: "")
-                put(CalendarContract.Events.CALENDAR_ID, calendarId)
+                put(CalendarContract.Events.DTSTART, startTime)
+                put(CalendarContract.Events.DTEND, endTime)
+                put(CalendarContract.Events.ALL_DAY, 0)
+                put(CalendarContract.Events.EVENT_TIMEZONE, timeZone)
+                put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CONFIRMED)
+                put(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
             }
+
             val uri = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
-            uri?.lastPathSegment?.toLongOrNull()
-        } catch (_: Exception) {
+            val eventId = uri?.lastPathSegment?.toLongOrNull()
+
+            if (eventId != null && target.accountType.equals("com.google", ignoreCase = true)) {
+                // Request background sync to Google Calendar cloud
+                triggerGoogleCalendarSync(target.accountName)
+            }
+
+            eventId
+        } catch (e: Exception) {
+            Log.e("CalendarHelper", "Insert event error", e)
             null
         }
     }
 
     fun updateEvent(
         context: Context,
+        target: CalendarTarget,
         eventId: Long,
         title: String,
         notes: String?,
-        startTimeMs: Long,
-        isAllDay: Boolean = false
+        createdTimestampMs: Long
     ) {
         try {
+            val startTime = createdTimestampMs
+            val endTime = createdTimestampMs + 3600000L
+            val timeZone = TimeZone.getDefault().id
+
             val values = ContentValues().apply {
                 put(CalendarContract.Events.TITLE, title)
                 if (notes != null) {
                     put(CalendarContract.Events.DESCRIPTION, notes)
                 }
-                if (isAllDay) {
-                    val startUtc = normalizeToMidnightUtc(startTimeMs)
-                    val endUtc = startUtc + 86400000L
-                    put(CalendarContract.Events.DTSTART, startUtc)
-                    put(CalendarContract.Events.DTEND, endUtc)
-                    put(CalendarContract.Events.ALL_DAY, 1)
-                    put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
-                } else {
-                    put(CalendarContract.Events.DTSTART, startTimeMs)
-                    put(CalendarContract.Events.DTEND, startTimeMs + 3600000L)
-                    put(CalendarContract.Events.ALL_DAY, 0)
-                    put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
-                }
+                put(CalendarContract.Events.DTSTART, startTime)
+                put(CalendarContract.Events.DTEND, endTime)
+                put(CalendarContract.Events.EVENT_TIMEZONE, timeZone)
             }
+
             val updateUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
             context.contentResolver.update(updateUri, values, null, null)
-        } catch (_: Exception) {}
+
+            if (target.accountType.equals("com.google", ignoreCase = true)) {
+                triggerGoogleCalendarSync(target.accountName)
+            }
+        } catch (e: Exception) {
+            Log.e("CalendarHelper", "Update event error", e)
+        }
     }
 
     fun deleteEvent(context: Context, eventId: Long) {
         try {
             val deleteUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
             context.contentResolver.delete(deleteUri, null, null)
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("CalendarHelper", "Delete event error", e)
+        }
+    }
+
+    private fun triggerGoogleCalendarSync(accountName: String) {
+        try {
+            val account = Account(accountName, "com.google")
+            val bundle = Bundle().apply {
+                putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
+                putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+            }
+            ContentResolver.requestSync(account, CalendarContract.AUTHORITY, bundle)
+        } catch (e: Exception) {
+            Log.e("CalendarHelper", "Failed to request sync", e)
+        }
     }
 }
