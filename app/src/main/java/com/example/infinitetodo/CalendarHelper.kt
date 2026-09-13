@@ -56,14 +56,14 @@ object CalendarHelper {
             val values = ContentValues().apply {
                 if (isAllDay) {
                     val startUtc = normalizeToMidnightUtc(startTimeMs)
-                    val endUtc = startUtc + 86400000L // 1 day span
+                    val endUtc = startUtc + 86400000L
                     put(CalendarContract.Events.DTSTART, startUtc)
                     put(CalendarContract.Events.DTEND, endUtc)
                     put(CalendarContract.Events.ALL_DAY, 1)
                     put(CalendarContract.Events.EVENT_TIMEZONE, "UTC")
                 } else {
                     put(CalendarContract.Events.DTSTART, startTimeMs)
-                    put(CalendarContract.Events.DTEND, startTimeMs + 3600000L) // 1 hr default
+                    put(CalendarContract.Events.DTEND, startTimeMs + 3600000L)
                     put(CalendarContract.Events.ALL_DAY, 0)
                     put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
                 }
