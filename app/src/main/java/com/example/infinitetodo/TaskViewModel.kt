@@ -54,6 +54,37 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun getTaskById(taskId: Long): TaskItem? = dao.getTaskById(taskId)
 
+    // AUTOMATIC BIDIRECTIONAL CROSS-TASK LINKING
+    fun linkTasksBidirectional(taskAId: Long, taskBId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val taskA = dao.getTaskById(taskAId) ?: return@launch
+            val taskB = dao.getTaskById(taskBId) ?: return@launch
+
+            val setA = taskA.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            setA.add(taskBId.toString())
+            dao.updateTask(taskA.copy(linkedTaskIds = setA.joinToString(","), lastModifiedTimestamp = System.currentTimeMillis()))
+
+            val setB = taskB.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            setB.add(taskAId.toString())
+            dao.updateTask(taskB.copy(linkedTaskIds = setB.joinToString(","), lastModifiedTimestamp = System.currentTimeMillis()))
+        }
+    }
+
+    fun unlinkTasksBidirectional(taskAId: Long, taskBId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val taskA = dao.getTaskById(taskAId) ?: return@launch
+            val taskB = dao.getTaskById(taskBId) ?: return@launch
+
+            val setA = taskA.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            setA.remove(taskBId.toString())
+            dao.updateTask(taskA.copy(linkedTaskIds = setA.joinToString(","), lastModifiedTimestamp = System.currentTimeMillis()))
+
+            val setB = taskB.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            setB.remove(taskAId.toString())
+            dao.updateTask(taskB.copy(linkedTaskIds = setB.joinToString(","), lastModifiedTimestamp = System.currentTimeMillis()))
+        }
+    }
+
     suspend fun getAllUniqueTags(): List<String> {
         val all = dao.getAllTasksSnapshot()
         val set = mutableSetOf<String>()
@@ -145,9 +176,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Synchronizes a task to Google Calendar strictly based on its createdTimestamp.
-     */
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -158,7 +186,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         return try {
             val target = CalendarHelper.getPrimaryGoogleCalendar(getApplication()) ?: return false
             val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-
             val createdEpochMs = task.createdTimestamp
 
             val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
@@ -219,7 +246,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             }
             val ok = syncTaskToCalendar(task)
             withContext(Dispatchers.Main) {
-                onResult(if (ok) "Synced '${task.title}' to Google Calendar on created date ✓" else "Calendar sync failed: Ensure write permission & Google account sync are enabled.")
+                onResult(if (ok) "Synced '${task.title}' to Google Calendar on created date ✓" else "Calendar sync failed: Check permissions.")
             }
         }
     }
