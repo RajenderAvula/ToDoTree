@@ -24,6 +24,7 @@ data class FilterCriteria(
     val priorities: Set<TaskPriority> = emptySet(),
     val statusPending: Boolean? = null,
     val mustHaveContact: Boolean = false,
+    val selectedTags: Set<String> = emptySet(),
     val createdFromMs: Long? = null,
     val createdToMs: Long? = null,
     val dueFromMs: Long? = null,
@@ -53,7 +54,56 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun getTaskById(taskId: Long): TaskItem? = dao.getTaskById(taskId)
 
-    // Builds the full parent lineage from leaf up to root main task
+    // Extracts all distinct tags in the database for the tag filter bar
+    suspend fun getAllUniqueTags(): List<String> {
+        val all = dao.getAllTasksSnapshot()
+        val set = mutableSetOf<String>()
+        for (t in all) {
+            t.tags?.split(",")?.forEach { tag ->
+                val clean = tag.trim()
+                if (clean.isNotEmpty()) set.add(clean)
+            }
+        }
+        return set.sorted()
+    }
+
+    // Calculates max sub-tree depth (how many layers exist below this task)
+    suspend fun getDescendantLayersCount(taskId: Long): Int {
+        var currentLevel = listOf(taskId)
+        var depth = 0
+        while (currentLevel.isNotEmpty()) {
+            val nextLevel = mutableListOf<Long>()
+            for (id in currentLevel) {
+                val children = dao.getSubtasksSnapshot(id)
+                nextLevel.addAll(children.map { it.id })
+            }
+            if (nextLevel.isNotEmpty()) {
+                depth++
+                currentLevel = nextLevel
+            } else {
+                break
+            }
+        }
+        return depth
+    }
+
+    // Calculates current layer level from root (Root = 1, Subtask = 2, Sub-subtask = 3, etc.)
+    suspend fun getLayerLevel(taskId: Long): Int {
+        var level = 1
+        var curr = dao.getTaskById(taskId)
+        while (curr?.parentId != null) {
+            level++
+            curr = dao.getTaskById(curr.parentId!!)
+        }
+        return level
+    }
+
+    // Full breadcrumb trail string: "Project X ➔ Feature Y ➔ Task Z"
+    suspend fun getHierarchyPathString(taskId: Long): String {
+        val trail = getBreadcrumbTrail(taskId)
+        return trail.joinToString(" ➔ ") { it.title.ifBlank { "Task #${it.id}" } }
+    }
+
     suspend fun getBreadcrumbTrail(leafTaskId: Long?): List<TaskItem> {
         if (leafTaskId == null) return emptyList()
         val path = mutableListOf<TaskItem>()
@@ -71,7 +121,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         return all.filter { it.id != excludeTaskId }
     }
 
-    // BACKUP & RESTORE
     fun backupToDevice(destinationStream: OutputStream, onComplete: (Boolean) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val success = backupRestoreManager.createZipBackup(dao, destinationStream)
@@ -106,7 +155,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CALENDAR SYNC ON CREATED / MODIFIED DATE
+    /**
+     * Synchronizes task to Google Calendar strictly based on date-time CREATED stamp.
+     */
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -116,7 +167,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
         return try {
             val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-            val syncEpochMs = task.lastModifiedTimestamp.takeIf { it > 0 } ?: task.createdTimestamp
+
+            // SYNC STRICTLY BASED ON DATE TIME CREATED STAMP
+            val syncCreatedEpochMs = task.createdTimestamp
 
             val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
             val hierarchyPrefix = if (parentTask != null) "[Subtask of '${parentTask.title}'] " else "[Main Task] "
@@ -127,6 +180,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val checklists = dao.getChecklistSnapshot(task.id)
 
             val notesBody = task.notes ?: ""
+            val tagsSummary = if (!task.tags.isNullOrBlank()) "Tags: [${task.tags}]\n" else ""
             val chkSummary = if (checklists.isNotEmpty()) {
                 "\n\nChecklist:\n" + checklists.joinToString("\n") { (if (it.isDone) "✓ " else "○ ") + it.text }
             } else ""
@@ -134,9 +188,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 "\n\nAttachments & Contacts:\n" + attachments.joinToString("\n") { "- [${it.type}] ${it.displayName}" }
             } else ""
 
-            val auditNote = "Action Date: ${dateFormat.format(Date(syncEpochMs))}\nCreated: ${dateFormat.format(Date(task.createdTimestamp))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
+            val auditNote = "Created Stamp: ${dateFormat.format(Date(syncCreatedEpochMs))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
             val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name}\n" else ""
-            val fullDescription = "$auditNote$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
+            val fullDescription = "$auditNote$tagsSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
 
             if (task.calendarEventId != null) {
                 CalendarHelper.updateEvent(
@@ -144,7 +198,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     eventId = task.calendarEventId,
                     title = fullCalendarTitle,
                     notes = fullDescription,
-                    startTimeMs = syncEpochMs,
+                    startTimeMs = syncCreatedEpochMs,
                     isAllDay = false
                 )
             } else {
@@ -154,7 +208,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                         context = getApplication(),
                         calendarId = calId,
                         title = fullCalendarTitle,
-                        startTimeMs = syncEpochMs,
+                        startTimeMs = syncCreatedEpochMs,
                         notes = fullDescription,
                         isAllDay = false
                     )
@@ -179,7 +233,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             }
             val ok = syncTaskToCalendar(task)
             withContext(Dispatchers.Main) {
-                onResult(if (ok) "Synced '${task.title}' to Calendar ✓" else "Calendar permission missing or sync failed")
+                onResult(if (ok) "Synced '${task.title}' to Calendar on created date ✓" else "Calendar permission missing or sync failed")
             }
         }
     }
@@ -213,11 +267,13 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         task: TaskItem,
         title: String,
         notes: String?,
+        tags: String?,
         priority: TaskPriority,
         reminderEpochMs: Long?,
         dueEpochMs: Long?,
         repeatRule: RecurrenceRule,
         repeatIntervalDays: Int,
+        repeatTimeEpochMs: Long?,
         linkedTaskIds: String?
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -225,11 +281,13 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val updated = task.copy(
                 title = title,
                 notes = notes,
+                tags = tags,
                 priority = priority,
                 reminderTimestamp = reminderEpochMs,
                 dueTimestamp = dueEpochMs,
                 repeatRule = repeatRule,
                 repeatIntervalDays = repeatIntervalDays,
+                repeatTimeEpochMs = repeatTimeEpochMs,
                 linkedTaskIds = linkedTaskIds,
                 lastModifiedTimestamp = now
             )
@@ -365,7 +423,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -433,7 +490,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
