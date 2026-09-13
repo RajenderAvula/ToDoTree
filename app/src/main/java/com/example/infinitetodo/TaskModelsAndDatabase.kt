@@ -33,14 +33,14 @@ data class TaskItem(
     val parentId: Long? = null,
     val title: String,
     val notes: String? = null,
-    val tags: String? = null, // Comma-separated tags: "work,urgent,home"
+    val tags: String? = null,
     val isCompleted: Boolean = false,
     val priority: TaskPriority = TaskPriority.MEDIUM,
     val reminderTimestamp: Long? = null,
     val dueTimestamp: Long? = null,
     val repeatRule: RecurrenceRule = RecurrenceRule.NONE,
     val repeatIntervalDays: Int = 1,
-    val repeatTimeEpochMs: Long? = null, // Time of day for recurrence
+    val repeatTimestampMs: Long? = null, // Stores combined Date (Calendar) + Time (Clock)
     val calendarEventId: Long? = null,
     val linkedTaskIds: String? = null,
     val orderIndex: Int = 0,
@@ -156,9 +156,6 @@ interface TaskDao {
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
 
-    @Query("SELECT * FROM checklist_items")
-    suspend fun getAllChecklistSnapshot(): List<ChecklistItem>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItem(item: ChecklistItem): Long
 
@@ -178,9 +175,6 @@ interface TaskDao {
     @Query("SELECT * FROM rich_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getAttachmentsSnapshot(taskId: Long): List<RichAttachment>
 
-    @Query("SELECT * FROM rich_attachments")
-    suspend fun getAllAttachmentsSnapshot(): List<RichAttachment>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttachment(attachment: RichAttachment): Long
 
@@ -196,7 +190,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, RichAttachment::class],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(TaskConverters::class)
