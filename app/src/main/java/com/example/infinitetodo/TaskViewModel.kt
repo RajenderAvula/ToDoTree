@@ -96,20 +96,14 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun getHierarchyPathString(taskId: Long): String {
-        val trail = getBreadcrumbTrail(taskId)
-        return trail.joinToString(" ➔ ") { it.title.ifBlank { "Task #${it.id}" } }
-    }
-
-    suspend fun getBreadcrumbTrail(leafTaskId: Long?): List<TaskItem> {
-        if (leafTaskId == null) return emptyList()
-        val path = mutableListOf<TaskItem>()
-        var currentId: Long? = leafTaskId
+        val trail = mutableListOf<TaskItem>()
+        var currentId: Long? = taskId
         while (currentId != null) {
             val task = dao.getTaskById(currentId) ?: break
-            path.add(0, task)
+            trail.add(0, task)
             currentId = task.parentId
         }
-        return path
+        return trail.joinToString(" ➔ ") { it.title.ifBlank { "Task #${it.id}" } }
     }
 
     suspend fun getAllPotentialParents(excludeTaskId: Long): List<TaskItem> {
@@ -151,6 +145,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Synchronizes a task to Google Calendar strictly based on its createdTimestamp.
+     */
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -159,8 +156,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasPermission) return false
 
         return try {
+            val target = CalendarHelper.getPrimaryGoogleCalendar(getApplication()) ?: return false
             val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-            val syncCreatedEpochMs = task.createdTimestamp
+
+            val createdEpochMs = task.createdTimestamp
 
             val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
             val hierarchyPrefix = if (parentTask != null) "[Subtask of '${parentTask.title}'] " else "[Main Task] "
@@ -179,33 +178,29 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 "\n\nAttachments & Contacts:\n" + attachments.joinToString("\n") { "- [${it.type}] ${it.displayName}" }
             } else ""
 
-            val auditNote = "Created Stamp: ${dateFormat.format(Date(syncCreatedEpochMs))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
+            val auditNote = "Created Stamp: ${dateFormat.format(Date(createdEpochMs))}\nModified Stamp: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
             val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name}\n" else ""
             val fullDescription = "$auditNote$tagsSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
 
             if (task.calendarEventId != null) {
                 CalendarHelper.updateEvent(
                     context = getApplication(),
+                    target = target,
                     eventId = task.calendarEventId,
                     title = fullCalendarTitle,
                     notes = fullDescription,
-                    startTimeMs = syncCreatedEpochMs,
-                    isAllDay = false
+                    createdTimestampMs = createdEpochMs
                 )
             } else {
-                val calId = CalendarHelper.getPrimaryGoogleCalendarId(getApplication())
-                if (calId != null) {
-                    val newEventId = CalendarHelper.insertEvent(
-                        context = getApplication(),
-                        calendarId = calId,
-                        title = fullCalendarTitle,
-                        startTimeMs = syncCreatedEpochMs,
-                        notes = fullDescription,
-                        isAllDay = false
-                    )
-                    if (newEventId != null) {
-                        dao.updateTask(task.copy(calendarEventId = newEventId))
-                    }
+                val newEventId = CalendarHelper.insertEvent(
+                    context = getApplication(),
+                    target = target,
+                    title = fullCalendarTitle,
+                    createdTimestampMs = createdEpochMs,
+                    notes = fullDescription
+                )
+                if (newEventId != null) {
+                    dao.updateTask(task.copy(calendarEventId = newEventId))
                 }
             }
             true
@@ -224,7 +219,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             }
             val ok = syncTaskToCalendar(task)
             withContext(Dispatchers.Main) {
-                onResult(if (ok) "Synced '${task.title}' to Calendar on created date ✓" else "Calendar permission missing or sync failed")
+                onResult(if (ok) "Synced '${task.title}' to Google Calendar on created date ✓" else "Calendar sync failed: Ensure write permission & Google account sync are enabled.")
             }
         }
     }
@@ -414,7 +409,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -482,7 +476,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
