@@ -33,14 +33,16 @@ data class TaskItem(
     val parentId: Long? = null,
     val title: String,
     val notes: String? = null,
+    val tags: String? = null, // Comma-separated tags: "work,urgent,home"
     val isCompleted: Boolean = false,
     val priority: TaskPriority = TaskPriority.MEDIUM,
     val reminderTimestamp: Long? = null,
     val dueTimestamp: Long? = null,
     val repeatRule: RecurrenceRule = RecurrenceRule.NONE,
     val repeatIntervalDays: Int = 1,
+    val repeatTimeEpochMs: Long? = null, // Time of day for recurrence
     val calendarEventId: Long? = null,
-    val linkedTaskIds: String? = null, // Comma-separated IDs: "2,5,12"
+    val linkedTaskIds: String? = null,
     val orderIndex: Int = 0,
     val createdTimestamp: Long = System.currentTimeMillis(),
     val lastModifiedTimestamp: Long = System.currentTimeMillis()
@@ -124,6 +126,7 @@ interface TaskDao {
         LEFT JOIN rich_attachments a ON t.id = a.taskId
         WHERE t.title LIKE '%' || :query || '%' 
            OR t.notes LIKE '%' || :query || '%'
+           OR t.tags LIKE '%' || :query || '%'
            OR c.text LIKE '%' || :query || '%'
            OR a.displayName LIKE '%' || :query || '%'
            OR a.contactPhone LIKE '%' || :query || '%'
@@ -193,7 +196,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, RichAttachment::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(TaskConverters::class)
