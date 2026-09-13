@@ -40,7 +40,7 @@ data class TaskItem(
     val dueTimestamp: Long? = null,
     val repeatRule: RecurrenceRule = RecurrenceRule.NONE,
     val repeatIntervalDays: Int = 1,
-    val repeatTimestampMs: Long? = null, // Stores combined Date (Calendar) + Time (Clock)
+    val repeatTimestampMs: Long? = null,
     val calendarEventId: Long? = null,
     val linkedTaskIds: String? = null,
     val orderIndex: Int = 0,
@@ -156,6 +156,9 @@ interface TaskDao {
     @Query("SELECT * FROM checklist_items WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
 
+    @Query("SELECT * FROM checklist_items")
+    suspend fun getAllChecklistSnapshot(): List<ChecklistItem>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItem(item: ChecklistItem): Long
 
@@ -174,6 +177,9 @@ interface TaskDao {
 
     @Query("SELECT * FROM rich_attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getAttachmentsSnapshot(taskId: Long): List<RichAttachment>
+
+    @Query("SELECT * FROM rich_attachments")
+    suspend fun getAllAttachmentsSnapshot(): List<RichAttachment>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttachment(attachment: RichAttachment): Long
