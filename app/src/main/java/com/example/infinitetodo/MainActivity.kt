@@ -182,7 +182,7 @@ fun MainAppScaffold(
             when (selectedTab) {
                 AppNavTab.HOME -> HomeDashboardTab(
                     viewModel = viewModel,
-                    onOpenTask = { activeFullScreenTask = it }
+                    onOpenTask = { task -> activeFullScreenTask = task }
                 )
                 AppNavTab.TASKS -> TasksTreeTab(
                     viewModel = viewModel,
@@ -193,17 +193,17 @@ fun MainAppScaffold(
                             activeFullScreenTask = draft
                         }
                     },
-                    onOpenFullScreen = { activeFullScreenTask = it },
+                    onOpenFullScreen = { task -> activeFullScreenTask = task },
                     onMoveToTarget = { taskForTargetMove = it },
                     onCopyToTarget = { taskForTargetCopy = it }
                 )
                 AppNavTab.CALENDAR -> CalendarAgendaTab(
                     viewModel = viewModel,
-                    onOpenTask = { activeFullScreenTask = it }
+                    onOpenTask = { task -> activeFullScreenTask = task }
                 )
                 AppNavTab.GANTT -> GanttChartTab(
                     viewModel = viewModel,
-                    onOpenTask = { activeFullScreenTask = it }
+                    onOpenTask = { task -> activeFullScreenTask = task }
                 )
                 AppNavTab.SETTINGS -> SettingsManagerTab(
                     currentTheme = currentTheme,
@@ -215,14 +215,13 @@ fun MainAppScaffold(
             }
         }
 
+        // FULL SCREEN TASK WORKSPACE MODAL
         activeFullScreenTask?.let { taskToEdit ->
-            key(taskToEdit.id) {
-                FullScreenTaskWorkspaceDialog(
-                    initialTaskId = taskToEdit.id,
-                    viewModel = viewModel,
-                    onDismiss = { activeFullScreenTask = null }
-                )
-            }
+            FullScreenTaskWorkspaceDialog(
+                initialTaskId = taskToEdit.id,
+                viewModel = viewModel,
+                onDismiss = { activeFullScreenTask = null }
+            )
         }
 
         taskForTargetMove?.let { movingTask ->
@@ -256,12 +255,12 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
-// ALWAYS VISIBLE URGENT AND STANDARD PRIORITY BADGE
+// PROMINENT URGENT & STANDARD PRIORITY BADGES
 // -----------------------------------------------------------------------------------------
 @Composable
 fun PriorityBadge(priority: TaskPriority) {
     val bg = when (priority) {
-        TaskPriority.URGENT -> Color(0xFFD32F2F) // Crimson Red for Urgent
+        TaskPriority.URGENT -> Color(0xFFD32F2F)
         TaskPriority.HIGH -> Color(0xFFF57C00)
         TaskPriority.MEDIUM -> Color(0xFF0288D1)
         TaskPriority.LOW -> Color(0xFF689F38)
@@ -397,7 +396,6 @@ fun TaskFilterHeaderBar(
                     }
                 }
 
-                // Priority Filter Row with high-contrast URGENT styling
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Priority:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
                     TaskPriority.values().forEach { priority ->
@@ -587,7 +585,11 @@ fun HomeDashboardTab(
                                 onCheckedChange = { viewModel.toggleTaskCompletion(task) }
                             )
                             Spacer(Modifier.width(6.dp))
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onOpenTask(task) }
+                            ) {
                                 HighlightedText(
                                     text = task.title.ifBlank { "Untitled Task" },
                                     query = searchQuery,
@@ -612,8 +614,11 @@ fun HomeDashboardTab(
                                     )
                                 }
                             }
-                            IconButton(onClick = { onOpenTask(task) }) {
-                                Icon(Icons.Default.OpenInFull, contentDescription = "Open")
+                            IconButton(
+                                onClick = { onOpenTask(task) },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(Icons.Default.OpenInFull, contentDescription = "Open Full Screen", tint = MaterialTheme.colorScheme.primary)
                             }
                         }
 
@@ -1105,6 +1110,9 @@ fun SettingsManagerTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// REUSABLE TASK TREE ROW (CARD BODY & OPENINFULL ICON BOTH GUARANTEED TO OPEN WORKSPACE)
+// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
     task: TaskItem,
@@ -1185,7 +1193,7 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 2: Drag Handle, Checkbox, Title Text
+                // ROW 2: Drag Handle, Checkbox, Title Text (DIRECTLY OPENS FULL SCREEN ON CLICK)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -1240,7 +1248,12 @@ fun TaskNodeView(
 
                     Spacer(Modifier.width(6.dp))
 
-                    Column(modifier = Modifier.weight(1f).clickable { onOpenFullScreen(task) }) {
+                    // TAPPING TITLE COLUMN DIRECTLY OPENS FULL SCREEN WORKSPACE
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onOpenFullScreen(task) }
+                    ) {
                         HighlightedText(
                             text = task.title.ifBlank { "Untitled Task" },
                             query = searchQuery,
@@ -1322,7 +1335,7 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 5: Action Toolbar
+                // ROW 5: Action Toolbar (Dedicated button guaranteed to open full screen)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1357,8 +1370,17 @@ fun TaskNodeView(
                         IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyToTarget(task) }) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Copy Target", modifier = Modifier.size(17.dp))
                         }
-                        IconButton(modifier = Modifier.size(30.dp), onClick = { onOpenFullScreen(task) }) {
-                            Icon(Icons.Default.OpenInFull, contentDescription = "Open Full Screen", modifier = Modifier.size(17.dp))
+                        // DEDICATED FULL SCREEN LAUNCHER BUTTON BESIDE DELETE
+                        IconButton(
+                            modifier = Modifier.size(36.dp),
+                            onClick = { onOpenFullScreen(task) }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.OpenInFull,
+                                contentDescription = "Open Full Screen Mode",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                         IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.deleteTask(task) }) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(17.dp))
@@ -1794,7 +1816,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // BIDIRECTIONAL CROSS-TASK LINKING (UPDATING IMMEDIATELY IN UI)
+        // BIDIRECTIONAL CROSS-TASK LINKING
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Cross-Task Linking (Bidirectional)", fontWeight = FontWeight.Bold)
@@ -1825,7 +1847,6 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                // Render live linked task chips (reflects Room state immediately)
                 val liveLinkedIds = remember(task.linkedTaskIds) {
                     task.linkedTaskIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() } ?: emptyList()
                 }
@@ -1872,7 +1893,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // CHECKLISTS (WITH UNCONSTRAINED EDIT/SAVE ICON WORKSPACE)
+        // CHECKLISTS WITH ACCESSIBLE SAVE ACTION
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
@@ -1888,7 +1909,6 @@ fun SingleTaskEditorView(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp))
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            // Standard Row View
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(
                                     checked = item.isDone,
@@ -1926,7 +1946,7 @@ fun SingleTaskEditorView(
                                 }
                             }
 
-                            // DEDICATED FULL-WIDTH EDITING BLOCK (NEVER CLIPPED OR HIDDEN)
+                            // DEDICATED FULL-WIDTH EDITING BLOCK
                             AnimatedVisibility(visible = isRenamingTitle) {
                                 Column(
                                     modifier = Modifier
@@ -2101,7 +2121,6 @@ fun SingleTaskEditorView(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                // SPREAD HORIZONTALLY ACROSS FULL UI LENGTH
                 liveAttachments.forEach { att ->
                     var isAttachmentNoteExpanded by remember { mutableStateOf(false) }
                     var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
@@ -2113,7 +2132,6 @@ fun SingleTaskEditorView(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            // Full-width horizontal spread bar
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -2132,7 +2150,6 @@ fun SingleTaskEditorView(
                                 )
                                 Spacer(Modifier.width(8.dp))
 
-                                // Attachment Name, Phone & Dates spread horizontally
                                 Column(
                                     modifier = Modifier
                                         .weight(1f)
@@ -2157,7 +2174,6 @@ fun SingleTaskEditorView(
                                     att.contactPhone?.let {
                                         Text("📞 Phone: $it", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                                     }
-                                    // SPREAD HORIZONTALLY: CREATED & MODIFIED DATES
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -2198,7 +2214,6 @@ fun SingleTaskEditorView(
                                 }
                             }
 
-                            // Dedicated expandable note text box per attachment
                             AnimatedVisibility(visible = isAttachmentNoteExpanded) {
                                 Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     OutlinedTextField(
