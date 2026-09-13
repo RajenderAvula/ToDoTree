@@ -54,7 +54,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun getTaskById(taskId: Long): TaskItem? = dao.getTaskById(taskId)
 
-    // AUTOMATIC BIDIRECTIONAL CROSS-TASK LINKING
     fun linkTasksBidirectional(taskAId: Long, taskBId: Long) {
         viewModelScope.launch(Dispatchers.IO) {
             val taskA = dao.getTaskById(taskAId) ?: return@launch
@@ -436,6 +435,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -503,6 +503,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
