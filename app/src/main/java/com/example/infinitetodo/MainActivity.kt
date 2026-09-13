@@ -43,6 +43,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -113,11 +116,10 @@ fun MainAppScaffold(
 ) {
     var selectedTab by remember { mutableStateOf(AppNavTab.HOME) }
     var activeFullScreenTask by remember { mutableStateOf<TaskItem?>(null) }
+    var popupLinkedTask by remember { mutableStateOf<TaskItem?>(null) }
     val scope = rememberCoroutineScope()
 
-    // Holds currently focused task ID for drill-down view (null = Root)
     var focusedParentId by remember { mutableStateOf<Long?>(null) }
-
     var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }
     var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }
 
@@ -230,16 +232,17 @@ fun MainAppScaffold(
             }
         }
 
+        // Full Screen Primary Workspace
         activeFullScreenTask?.let { taskToEdit ->
             FullScreenTaskEditor(
                 task = taskToEdit,
                 viewModel = viewModel,
                 onDismiss = { activeFullScreenTask = null },
-                onNavigateToLinkedTask = { targetTaskId ->
+                onOpenLinkedTaskPopup = { targetTaskId ->
                     scope.launch {
-                        val targetTask = viewModel.getTaskById(targetTaskId)
-                        if (targetTask != null) {
-                            activeFullScreenTask = targetTask
+                        val target = viewModel.getTaskById(targetTaskId)
+                        if (target != null) {
+                            popupLinkedTask = target
                         } else {
                             Toast.makeText(context, "Linked task not found", Toast.LENGTH_SHORT).show()
                         }
@@ -248,6 +251,20 @@ fun MainAppScaffold(
             )
         }
 
+        // POPUP MODAL DIALOG ON OPENING HYPERLINK
+        popupLinkedTask?.let { linkedTask ->
+            TaskHyperlinkPopupDialog(
+                task = linkedTask,
+                viewModel = viewModel,
+                onDismiss = { popupLinkedTask = null },
+                onOpenInFullEditor = {
+                    popupLinkedTask = null
+                    activeFullScreenTask = linkedTask
+                }
+            )
+        }
+
+        // Destination Selection Dialogs
         taskForTargetMove?.let { movingTask ->
             TaskDestinationDialog(
                 title = "Move '${movingTask.title}' to...",
@@ -276,6 +293,51 @@ fun MainAppScaffold(
             )
         }
     }
+}
+
+// -----------------------------------------------------------------------------------------
+// HIGHLIGHT SEARCH TEXT HELPER
+// -----------------------------------------------------------------------------------------
+@Composable
+fun HighlightedText(
+    text: String,
+    query: String,
+    style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium,
+    fontWeight: FontWeight? = null
+) {
+    if (query.isBlank() || !text.contains(query, ignoreCase = true)) {
+        Text(text, style = style, fontWeight = fontWeight)
+        return
+    }
+
+    val annotated = remember(text, query) {
+        buildAnnotatedString {
+            var startIndex = 0
+            val lowerText = text.lowercase()
+            val lowerQuery = query.lowercase()
+
+            while (startIndex < text.length) {
+                val index = lowerText.indexOf(lowerQuery, startIndex)
+                if (index == -1) {
+                    append(text.substring(startIndex))
+                    break
+                }
+                append(text.substring(startIndex, index))
+                pushStyle(
+                    SpanStyle(
+                        background = Color(0xFFFFEB3B),
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                append(text.substring(index, index + query.length))
+                pop()
+                startIndex = index + query.length
+            }
+        }
+    }
+
+    Text(annotated, style = style, fontWeight = fontWeight)
 }
 
 // -----------------------------------------------------------------------------------------
@@ -341,7 +403,7 @@ fun TaskBreadcrumbBar(
 }
 
 // -----------------------------------------------------------------------------------------
-// COMMON MULTI-CRITERIA FILTER BAR
+// FILTER BAR WITH TAGS, PRIORITY, STATUS & DATES
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -354,6 +416,14 @@ fun TaskFilterHeaderBar(
     var showFilterSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val dateChipFormat = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
+    var availableTags by remember { mutableStateOf<List<String>>(emptyList()) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(showFilterSheet) {
+        if (showFilterSheet) {
+            scope.launch { availableTags = viewModel.getAllUniqueTags() }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -364,7 +434,7 @@ fun TaskFilterHeaderBar(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
-            placeholder = { Text("Search title, checklist, notes, contact...") },
+            placeholder = { Text("Search task, tag, note, contact...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -377,7 +447,7 @@ fun TaskFilterHeaderBar(
                         Icon(
                             Icons.Default.FilterList,
                             contentDescription = "Filters",
-                            tint = if (filterState.priorities.isNotEmpty() || filterState.statusPending != null || filterState.mustHaveContact || filterState.createdFromMs != null || filterState.dueFromMs != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            tint = if (filterState.priorities.isNotEmpty() || filterState.statusPending != null || filterState.mustHaveContact || filterState.selectedTags.isNotEmpty() || filterState.createdFromMs != null || filterState.dueFromMs != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         )
                     }
                 }
@@ -388,6 +458,25 @@ fun TaskFilterHeaderBar(
 
         AnimatedVisibility(visible = showFilterSheet) {
             Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // TAG FILTER ROW
+                if (availableTags.isNotEmpty()) {
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Tags:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
+                        availableTags.forEach { tag ->
+                            FilterChip(
+                                selected = tag in filterState.selectedTags,
+                                onClick = {
+                                    val current = filterState.selectedTags.toMutableSet()
+                                    if (tag in current) current.remove(tag) else current.add(tag)
+                                    viewModel.updateFilter(filterState.copy(selectedTags = current))
+                                },
+                                label = { Text("#$tag") }
+                            )
+                        }
+                    }
+                }
+
+                // Priority chips
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Priority:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
                     TaskPriority.values().forEach { priority ->
@@ -403,6 +492,7 @@ fun TaskFilterHeaderBar(
                     }
                 }
 
+                // Status chips
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Status:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
                     FilterChip(
@@ -427,6 +517,7 @@ fun TaskFilterHeaderBar(
                     )
                 }
 
+                // Date ranges
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Dates:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
 
@@ -443,15 +534,6 @@ fun TaskFilterHeaderBar(
                         },
                         label = {
                             Text(filterState.createdFromMs?.let { "Created: ${dateChipFormat.format(Date(it))}" } ?: "Filter Created Date")
-                        },
-                        trailingIcon = {
-                            if (filterState.createdFromMs != null) {
-                                IconButton(modifier = Modifier.size(16.dp), onClick = {
-                                    viewModel.updateFilter(filterState.copy(createdFromMs = null, createdToMs = null))
-                                }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            }
                         }
                     )
 
@@ -468,15 +550,6 @@ fun TaskFilterHeaderBar(
                         },
                         label = {
                             Text(filterState.dueFromMs?.let { "Due: ${dateChipFormat.format(Date(it))}" } ?: "Filter Due Date")
-                        },
-                        trailingIcon = {
-                            if (filterState.dueFromMs != null) {
-                                IconButton(modifier = Modifier.size(16.dp), onClick = {
-                                    viewModel.updateFilter(filterState.copy(dueFromMs = null, dueToMs = null))
-                                }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
-                                }
-                            }
                         }
                     )
                 }
@@ -486,7 +559,7 @@ fun TaskFilterHeaderBar(
 }
 
 // -----------------------------------------------------------------------------------------
-// 1. HOME DASHBOARD TAB (WITH LINEAGE TRAIL & DRILL-DOWN SUBTREE SCOPE)
+// 1. HOME DASHBOARD TAB (WITH COMPLETE TASKS SUMMARY & METRICS)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
@@ -496,20 +569,27 @@ fun HomeDashboardTab(
     onOpenTask: (TaskItem) -> Unit,
     onAddNewTask: () -> Unit
 ) {
-    // Collect tasks scoped to the focused parent (or root if null)
-    val scopedTasks by (if (focusedParentId == null) viewModel.rootTasks else viewModel.getSubtasks(focusedParentId))
-        .collectAsState(initial = emptyList())
-
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
     var searchQuery by remember { mutableStateOf("") }
     val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
     val filterState by viewModel.filterState.collectAsState()
     val context = LocalContext.current
 
-    val displayedTasks = remember(scopedTasks, searchResults, searchQuery, filterState) {
-        val base = if (searchQuery.isNotBlank()) searchResults else scopedTasks
+    // Summary Metrics
+    val totalCreated = allTasks.size
+    val totalCompleted = allTasks.count { it.isCompleted }
+    val totalPending = totalCreated - totalCompleted
+    val urgentCount = allTasks.count { it.priority == TaskPriority.URGENT }
+    val highCount = allTasks.count { it.priority == TaskPriority.HIGH }
+    val medCount = allTasks.count { it.priority == TaskPriority.MEDIUM }
+    val lowCount = allTasks.count { it.priority == TaskPriority.LOW }
+
+    val displayedTasks = remember(allTasks, searchResults, searchQuery, filterState) {
+        val base = if (searchQuery.isNotBlank()) searchResults else allTasks
         base.filter { task ->
             (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
             (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
+            (filterState.selectedTags.isEmpty() || (task.tags?.split(",")?.map { it.trim() }?.any { it in filterState.selectedTags } == true)) &&
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
         }
@@ -518,33 +598,44 @@ fun HomeDashboardTab(
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
 
-        // BREADCRUMB LINEAGE BAR
-        TaskBreadcrumbBar(viewModel, focusedParentId) { onFocusParent(it) }
-
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            // COMPREHENSIVE TASKS SUMMARY DASHBOARD
             item {
-                Row(
+                Card(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Column {
-                        Text(
-                            text = if (focusedParentId == null) "Top-Level Tasks" else "Included Subtasks",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text("${displayedTasks.size} task(s) in this scope", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                    }
-                    IconButton(onClick = {
-                        PrintHelper.printTasks(context, "Task Scope Print", displayedTasks)
-                    }) {
-                        Icon(Icons.Default.Print, contentDescription = "Print")
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("Task Analytics & Metrics Summary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$totalCreated", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("Created", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$totalPending", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFFF57C00))
+                                Text("Pending", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("$totalCompleted", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = Color(0xFF388E3C))
+                                Text("Completed", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Urgent: $urgentCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFD32F2F))
+                            Text("High: $highCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFF57C00))
+                            Text("Med: $medCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF0288D1))
+                            Text("Low: $lowCount", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFF689F38))
+                        }
                     }
                 }
             }
@@ -557,8 +648,7 @@ fun HomeDashboardTab(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        // CLICKING TASK DRILLS DOWN INTO ITS SUBTASKS
-                        .clickable { onFocusParent(task.id) },
+                        .clickable { onOpenTask(task) },
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -570,46 +660,45 @@ fun HomeDashboardTab(
                             Spacer(Modifier.width(6.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
+                                    HighlightedText(
                                         text = task.title.ifBlank { "Untitled Task" },
+                                        query = searchQuery,
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                     Spacer(Modifier.width(6.dp))
                                     PriorityBadge(task.priority)
-
                                     if (subtaskCount > 0) {
                                         Spacer(Modifier.width(6.dp))
                                         Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(4.dp)) {
-                                            Text(
-                                                text = "[$subtaskCount subtasks ➔]",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
+                                            Text("[$subtaskCount subtasks]", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
                                         }
                                     }
                                 }
 
-                                if (!task.notes.isNullOrBlank()) {
+                                if (!task.tags.isNullOrBlank()) {
                                     Text(
+                                        text = task.tags.split(",").joinToString(" ") { "#${it.trim()}" },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(top = 2.dp)
+                                    )
+                                }
+
+                                if (!task.notes.isNullOrBlank()) {
+                                    HighlightedText(
                                         text = task.notes,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.outline,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        query = searchQuery,
+                                        style = MaterialTheme.typography.bodySmall
                                     )
                                 }
                             }
-
-                            // Open Full Workspace Button
                             IconButton(onClick = { onOpenTask(task) }) {
-                                Icon(Icons.Default.OpenInFull, contentDescription = "Open Workspace", tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Default.OpenInFull, contentDescription = "Open")
                             }
                         }
 
+                        // HORIZONTAL CONTACT BAR ALWAYS VISIBLE
                         if (contacts.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -630,7 +719,7 @@ fun HomeDashboardTab(
                                             Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
                                             Spacer(Modifier.width(4.dp))
                                             Text(
-                                                "${contact.displayName}: ${contact.contactPhone ?: "No #"} (${if (contact.isContactPending) "Pending" else "Done"})",
+                                                "${contact.displayName}: ${contact.contactPhone ?: "No Phone"} • ${if (contact.isContactPending) "Pending" else "Done"}",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontWeight = FontWeight.Medium
                                             )
@@ -647,7 +736,7 @@ fun HomeDashboardTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 2. TASKS TREE TAB (WITH SCOPED LEVEL DRILLING & BREADCRUMBS)
+// 2. TASKS TREE TAB (WITH FILTER & SEARCH APPLIED, HIGHLIGHTED TERMS & LAYER DEPTH)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
@@ -664,12 +753,25 @@ fun TasksTreeTab(
         .collectAsState(initial = emptyList())
 
     var searchQuery by remember { mutableStateOf("") }
+    val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
+    val filterState by viewModel.filterState.collectAsState()
     val context = LocalContext.current
+
+    // Ensure search and filter results appear right inside the Tasks tab
+    val displayedTasks = remember(activeTasks, searchResults, searchQuery, filterState) {
+        val base = if (searchQuery.isNotBlank()) searchResults else activeTasks
+        base.filter { task ->
+            (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
+            (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
+            (filterState.selectedTags.isEmpty() || (task.tags?.split(",")?.map { it.trim() }?.any { it in filterState.selectedTags } == true)) &&
+            (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
+            (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
 
-        // BREADCRUMB LINEAGE BAR
         TaskBreadcrumbBar(viewModel, focusedParentId) { onFocusParent(it) }
 
         Row(
@@ -680,7 +782,7 @@ fun TasksTreeTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = if (focusedParentId == null) "Hierarchical Tree" else "Subtree Workspace",
+                text = if (focusedParentId == null) "Hierarchical Tasks" else "Subtask Workspace",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
@@ -693,7 +795,7 @@ fun TasksTreeTab(
                     Icon(Icons.Default.Sync, contentDescription = "Sync All")
                 }
                 IconButton(onClick = {
-                    PrintHelper.printTasks(context, "Hierarchy Tree Print", activeTasks)
+                    PrintHelper.printTasks(context, "Hierarchy Tree Print", displayedTasks)
                 }) {
                     Icon(Icons.Default.Print, contentDescription = "Print Tree")
                 }
@@ -705,11 +807,12 @@ fun TasksTreeTab(
                 .fillMaxSize()
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-            items(activeTasks, key = { it.id }) { task ->
+            items(displayedTasks, key = { it.id }) { task ->
                 TaskNodeView(
                     task = task,
                     depth = 0,
                     viewMode = viewMode,
+                    searchQuery = searchQuery,
                     viewModel = viewModel,
                     onDrillInto = { onFocusParent(task.id) },
                     onAddSubtask = onAddSubtask,
@@ -723,7 +826,7 @@ fun TasksTreeTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 3. CALENDAR AGENDA TAB
+// 3. CALENDAR AGENDA TAB (WITH COMPLETE HIERARCHY PATH ON TOP)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun CalendarAgendaTab(
@@ -740,13 +843,14 @@ fun CalendarAgendaTab(
 
     val scheduledTasks = remember(allTasks, searchQuery, filterState) {
         allTasks.filter { task ->
-            val ts = task.dueTimestamp ?: task.reminderTimestamp ?: task.createdTimestamp
+            val ts = task.createdTimestamp
             (searchQuery.isBlank() || task.title.contains(searchQuery, true)) &&
             (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
             (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
+            (filterState.selectedTags.isEmpty() || (task.tags?.split(",")?.map { it.trim() }?.any { it in filterState.selectedTags } == true)) &&
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
-        }.sortedBy { it.dueTimestamp ?: it.reminderTimestamp ?: it.createdTimestamp }
+        }.sortedBy { it.createdTimestamp }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -771,8 +875,11 @@ fun CalendarAgendaTab(
 
         LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(scheduledTasks, key = { it.id }) { task ->
-                val epoch = task.dueTimestamp ?: task.reminderTimestamp ?: task.createdTimestamp
-                val isAllDay = task.dueTimestamp == null && task.reminderTimestamp == null
+                var hierarchyPath by remember { mutableStateOf("") }
+                val scope = rememberCoroutineScope()
+                LaunchedEffect(task.id) {
+                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
+                }
 
                 Card(
                     modifier = Modifier
@@ -780,28 +887,41 @@ fun CalendarAgendaTab(
                         .clickable { onOpenTask(task) },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer)
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(if (isAllDay) "All Day" else timeFormat.format(Date(epoch)), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        // HIERARCHY PATH ON TOP
+                        if (hierarchyPath.isNotBlank()) {
+                            Text(
+                                text = "Path: $hierarchyPath",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
                         }
-                        Spacer(Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(dateFormat.format(Date(epoch)), style = MaterialTheme.typography.labelSmall)
-                            Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                PriorityBadge(task.priority)
-                                if (task.calendarEventId != null) {
-                                    Text("• Google Calendar Synced ✓", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Column(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(timeFormat.format(Date(task.createdTimestamp)), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(dateFormat.format(Date(task.createdTimestamp)), style = MaterialTheme.typography.labelSmall)
+                                Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    PriorityBadge(task.priority)
+                                    if (task.calendarEventId != null) {
+                                        Text("• Google Calendar Synced ✓", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    }
                                 }
                             }
+                            Checkbox(checked = task.isCompleted, onCheckedChange = { viewModel.toggleTaskCompletion(task) })
                         }
-                        Checkbox(checked = task.isCompleted, onCheckedChange = { viewModel.toggleTaskCompletion(task) })
                     }
                 }
             }
@@ -810,7 +930,7 @@ fun CalendarAgendaTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 4. GANTT CHART TIMELINE TAB
+// 4. GANTT CHART TAB (WITH HIERARCHY PATH & ACCORDION "SHOW DETAILS")
 // -----------------------------------------------------------------------------------------
 @Composable
 fun GanttChartTab(
@@ -818,7 +938,7 @@ fun GanttChartTab(
     onOpenTask: (TaskItem) -> Unit
 ) {
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
-    val dateFormat = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
 
     val ganttTasks = remember(allTasks) {
         allTasks.sortedBy { it.createdTimestamp }
@@ -835,15 +955,10 @@ fun GanttChartTab(
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Text("Gantt Chart Timeline", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Visual task progression based on creation and due dates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-        Spacer(Modifier.height(12.dp))
+        Text("Task progression with full hierarchy path and expandable dates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        Spacer(Modifier.height(8.dp))
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(dateFormat.format(Date(minTime)), style = MaterialTheme.typography.labelSmall)
-            Text(dateFormat.format(Date(maxTime)), style = MaterialTheme.typography.labelSmall)
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(ganttTasks, key = { it.id }) { task ->
@@ -853,35 +968,82 @@ fun GanttChartTab(
                 val startFraction = ((taskStart - minTime).toFloat() / totalDuration).coerceIn(0f, 1f)
                 val spanFraction = ((taskEnd - taskStart).toFloat() / totalDuration).coerceIn(0.08f, 1f - startFraction)
 
-                Column(modifier = Modifier.fillMaxWidth().clickable { onOpenTask(task) }) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        PriorityBadge(task.priority)
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(22.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
+                var showDetails by remember { mutableStateOf(false) }
+                var hierarchyPath by remember { mutableStateOf("") }
+                val scope = rememberCoroutineScope()
+                LaunchedEffect(task.id) {
+                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
+                }
+
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        // COMPLETE HIERARCHY PATH ON TOP
+                        if (hierarchyPath.isNotBlank()) {
+                            Text(
+                                text = "Path: $hierarchyPath",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 2.dp)
+                            )
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            PriorityBadge(task.priority)
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+
+                        // Timeline Bar
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(startFraction + spanFraction)
-                                .fillMaxHeight()
-                                .padding(start = (startFraction * 260).dp)
+                                .fillMaxWidth()
+                                .height(20.dp)
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(
-                                    if (task.isCompleted) Color(0xFF43A047)
-                                    else when (task.priority) {
-                                        TaskPriority.URGENT -> Color(0xFFD32F2F)
-                                        TaskPriority.HIGH -> Color(0xFFFB8C00)
-                                        TaskPriority.MEDIUM -> Color(0xFF1E88E5)
-                                        TaskPriority.LOW -> Color(0xFF7CB342)
-                                    }
-                                )
-                        )
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(startFraction + spanFraction)
+                                    .fillMaxHeight()
+                                    .padding(start = (startFraction * 260).dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(
+                                        if (task.isCompleted) Color(0xFF43A047)
+                                        else when (task.priority) {
+                                            TaskPriority.URGENT -> Color(0xFFD32F2F)
+                                            TaskPriority.HIGH -> Color(0xFFFB8C00)
+                                            TaskPriority.MEDIUM -> Color(0xFF0288D1)
+                                            TaskPriority.LOW -> Color(0xFF7CB342)
+                                        }
+                                    )
+                            )
+                        }
+
+                        // ACCORDION "SHOW DETAILS" BUTTON
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = { showDetails = !showDetails }) {
+                                Text(if (showDetails) "Hide Details ▲" else "Show Details ▼", style = MaterialTheme.typography.labelSmall)
+                            }
+                            TextButton(onClick = { onOpenTask(task) }) {
+                                Text("Open Workspace ➔", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+
+                        AnimatedVisibility(visible = showDetails) {
+                            Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("Created Date: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                Text("Due Date: ${task.dueTimestamp?.let { dateFormat.format(Date(it)) } ?: "None set"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                if (!task.tags.isNullOrBlank()) {
+                                    Text("Tags: #${task.tags.split(",").joinToString(" #")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1055,13 +1217,14 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (WITH DRILL-INTO CLICK & ENLARGED BUTTONS)
+// REUSABLE TASK TREE ROW (HIGHLIGHTED TEXT, VISIBLE CONTACTS & LAYER COUNTER)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
     task: TaskItem,
     depth: Int,
     viewMode: TaskViewMode,
+    searchQuery: String,
     viewModel: TaskViewModel,
     onDrillInto: () -> Unit,
     onAddSubtask: (Long) -> Unit,
@@ -1081,6 +1244,17 @@ fun TaskNodeView(
     val checklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
     val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
+
+    var layerLevel by remember { mutableStateOf(1) }
+    var layersBelow by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(task.id) {
+        scope.launch {
+            layerLevel = viewModel.getLayerLevel(task.id)
+            layersBelow = viewModel.getDescendantLayersCount(task.id)
+        }
+    }
 
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
@@ -1103,7 +1277,7 @@ fun TaskNodeView(
             elevation = CardDefaults.cardElevation(defaultElevation = if (isUndocked) 8.dp else 2.dp)
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
-                // ROW 1: Drag Handle, Checkbox, Title & Prominent Subtask Counter Badge
+                // ROW 1: Drag, Checkbox, Title & LAYER COUNTER BADGE
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -1158,46 +1332,53 @@ fun TaskNodeView(
 
                     Spacer(Modifier.width(6.dp))
 
-                    // CLICKING ROW NAVIGATES/DRILLS DIRECTLY INTO SUBTASK SCOPE
                     Column(modifier = Modifier.weight(1f).clickable { onDrillInto() }) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
+                            // HIGHLIGHTED SEARCH RESULT TITLE
+                            HighlightedText(
                                 text = task.title.ifBlank { "Untitled Task" },
+                                query = searchQuery,
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
-                                modifier = Modifier.weight(1f, fill = false)
+                                fontWeight = FontWeight.SemiBold
                             )
-                            Spacer(Modifier.width(8.dp))
+
+                            Spacer(Modifier.width(6.dp))
                             PriorityBadge(task.priority)
 
                             Spacer(Modifier.width(6.dp))
 
+                            // HOW MANY LAYERS ARE PRESENT BADGE
                             Surface(
-                                color = if (subtaskCount > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Text(
-                                    text = if (subtaskCount > 0) "$subtaskCount subtask${if (subtaskCount > 1) "s" else ""} ➔" else "0 subtasks",
-                                    color = if (subtaskCount > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.outline,
+                                    text = "Layer $layerLevel • $layersBelow below",
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                         }
 
-                        if (!task.notes.isNullOrBlank()) {
+                        if (!task.tags.isNullOrBlank()) {
                             Text(
-                                text = task.notes,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                text = task.tags.split(",").joinToString(" ") { "#${it.trim()}" },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(top = 2.dp)
+                            )
+                        }
+
+                        if (!task.notes.isNullOrBlank()) {
+                            HighlightedText(
+                                text = task.notes,
+                                query = searchQuery,
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }
@@ -1216,7 +1397,7 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 2: Created & Modified Timestamps
+                // ROW 2: Timestamps
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1227,7 +1408,7 @@ fun TaskNodeView(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // ROW 3: Horizontal Contacts Chips
+                // ROW 3: Contacts Chips (Always Visible Horizontally)
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -1275,11 +1456,11 @@ fun TaskNodeView(
                         }
                         if (task.parentId != null) {
                             IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.outdentTask(task) }) {
-                                Icon(Icons.Default.KeyboardDoubleArrowLeft, contentDescription = "Outdent to Parent", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(17.dp))
+                                Icon(Icons.Default.KeyboardDoubleArrowLeft, contentDescription = "Outdent", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(17.dp))
                             }
                         }
                         IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.indentTask(task) }) {
-                            Icon(Icons.Default.KeyboardDoubleArrowRight, contentDescription = "Indent to Subtask", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(17.dp))
+                            Icon(Icons.Default.KeyboardDoubleArrowRight, contentDescription = "Indent", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(17.dp))
                         }
                     }
 
@@ -1310,6 +1491,7 @@ fun TaskNodeView(
                     task = subtask,
                     depth = depth + 1,
                     viewMode = viewMode,
+                    searchQuery = searchQuery,
                     viewModel = viewModel,
                     onDrillInto = { /* Nested drill down */ },
                     onAddSubtask = onAddSubtask,
@@ -1323,7 +1505,55 @@ fun TaskNodeView(
 }
 
 // -----------------------------------------------------------------------------------------
-// FULL SCREEN WORKSPACE VIEW (UNCONSTRAINED SINGLE-ROOT VERTICAL SCROLL)
+// POPUP DIALOG ON OPENING HYPERLINK
+// -----------------------------------------------------------------------------------------
+@Composable
+fun TaskHyperlinkPopupDialog(
+    task: TaskItem,
+    viewModel: TaskViewModel,
+    onDismiss: () -> Unit,
+    onOpenInFullEditor: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text(task.title.ifBlank { "Task #${task.id}" })
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PriorityBadge(task.priority)
+                Text("Created: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                if (!task.tags.isNullOrBlank()) {
+                    Text("Tags: #${task.tags.split(",").joinToString(" #")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
+                if (!task.notes.isNullOrBlank()) {
+                    Text(task.notes, style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    Text("No additional description.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onOpenInFullEditor) {
+                Text("Open Full Workspace")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+// -----------------------------------------------------------------------------------------
+// FULL SCREEN WORKSPACE VIEW WITH TAGS & DECONGESTED CHECKLIST RENAMING
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1331,7 +1561,7 @@ fun FullScreenTaskEditor(
     task: TaskItem,
     viewModel: TaskViewModel,
     onDismiss: () -> Unit,
-    onNavigateToLinkedTask: (Long) -> Unit
+    onOpenLinkedTaskPopup: (Long) -> Unit
 ) {
     val context = LocalContext.current
     val audioHelper = remember { AudioRecorderHelper(context) }
@@ -1339,11 +1569,13 @@ fun FullScreenTaskEditor(
 
     var title by remember { mutableStateOf(task.title) }
     var notes by remember { mutableStateOf(task.notes ?: "") }
+    var tagsText by remember { mutableStateOf(task.tags ?: "") }
     var priority by remember { mutableStateOf(task.priority) }
     var reminderMs by remember { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember { mutableStateOf(task.dueTimestamp) }
     var repeatRule by remember { mutableStateOf(task.repeatRule) }
     var repeatIntervalDays by remember { mutableStateOf(task.repeatIntervalDays) }
+    var repeatTimeEpochMs by remember { mutableStateOf(task.repeatTimeEpochMs) }
     var linkedIds by remember { mutableStateOf(task.linkedTaskIds ?: "") }
 
     var isRecordingAudio by remember { mutableStateOf(false) }
@@ -1456,11 +1688,13 @@ fun FullScreenTaskEditor(
                                     task = task,
                                     title = title,
                                     notes = notes,
+                                    tags = tagsText,
                                     priority = priority,
                                     reminderEpochMs = reminderMs,
                                     dueEpochMs = dueMs,
                                     repeatRule = repeatRule,
                                     repeatIntervalDays = repeatIntervalDays,
+                                    repeatTimeEpochMs = repeatTimeEpochMs,
                                     linkedTaskIds = linkedIds
                                 )
                                 onDismiss()
@@ -1484,6 +1718,16 @@ fun FullScreenTaskEditor(
                     value = title,
                     onValueChange = { title = it },
                     label = { Text("Task Title *") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // TAGS EDITING FIELD
+                OutlinedTextField(
+                    value = tagsText,
+                    onValueChange = { tagsText = it },
+                    label = { Text("Tags (comma separated)") },
+                    placeholder = { Text("e.g. work, shopping, projectX") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1522,6 +1766,7 @@ fun FullScreenTaskEditor(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                // SCHEDULE, DUE DATES & REPEAT WITH TIME PICKER
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Schedule, Due Dates & Recurrence", fontWeight = FontWeight.Bold)
@@ -1558,6 +1803,7 @@ fun FullScreenTaskEditor(
                             }
                         }
 
+                        // RECURRENCE & TIME PICKER (e.g. 6:00 AM / 5:00 PM)
                         Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             RecurrenceRule.values().forEach { rule ->
                                 FilterChip(
@@ -1568,21 +1814,40 @@ fun FullScreenTaskEditor(
                             }
                         }
 
-                        if (repeatRule == RecurrenceRule.CUSTOM) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Repeat every ", style = MaterialTheme.typography.bodyMedium)
-                                OutlinedTextField(
-                                    value = repeatIntervalDays.toString(),
-                                    onValueChange = { repeatIntervalDays = it.toIntOrNull() ?: 1 },
-                                    modifier = Modifier.width(80.dp),
-                                    singleLine = true
-                                )
-                                Text(" days", style = MaterialTheme.typography.bodyMedium)
+                        if (repeatRule != RecurrenceRule.NONE) {
+                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val cal = Calendar.getInstance()
+                                        TimePickerDialog(context, { _, h, min ->
+                                            cal.set(Calendar.HOUR_OF_DAY, h)
+                                            cal.set(Calendar.MINUTE, min)
+                                            repeatTimeEpochMs = cal.timeInMillis
+                                        }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), false).show()
+                                    }
+                                ) {
+                                    val timeFmt = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                                    Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(repeatTimeEpochMs?.let { "At: ${timeFmt.format(Date(it))}" } ?: "Set Repeat Time (e.g. 6 AM)")
+                                }
+
+                                if (repeatRule == RecurrenceRule.CUSTOM) {
+                                    Text("Every", style = MaterialTheme.typography.bodyMedium)
+                                    OutlinedTextField(
+                                        value = repeatIntervalDays.toString(),
+                                        onValueChange = { repeatIntervalDays = it.toIntOrNull() ?: 1 },
+                                        modifier = Modifier.width(60.dp),
+                                        singleLine = true
+                                    )
+                                    Text("days", style = MaterialTheme.typography.bodyMedium)
+                                }
                             }
                         }
                     }
                 }
 
+                // CROSS-TASK LINKING WITH HYPERLINK POPUP
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Cross-Task Linking", fontWeight = FontWeight.Bold)
@@ -1626,7 +1891,8 @@ fun FullScreenTaskEditor(
                                 linkedIdList.forEach { id ->
                                     val linkedTask = allTasks.find { it.id == id }
                                     AssistChip(
-                                        onClick = { onNavigateToLinkedTask(id) },
+                                        // CLICKING OPENS POPUP MODAL DIALOG
+                                        onClick = { onOpenLinkedTaskPopup(id) },
                                         leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp)) },
                                         label = {
                                             Text(
@@ -1650,75 +1916,64 @@ fun FullScreenTaskEditor(
                     }
                 }
 
+                // CHECKLISTS WITH DECONGESTED RENAMING WORKFLOW
                 Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
 
                         liveChecklist.forEach { item ->
-                            var isEditingTitle by remember { mutableStateOf(false) }
-                            var editedTitle by remember(item.text) { mutableStateOf(item.text) }
-                            var isEditingNote by remember { mutableStateOf(false) }
-                            var editedNote by remember(item.notes) { mutableStateOf(item.notes ?: "") }
+                            var isRenamingChecklist by remember { mutableStateOf(false) }
+                            var renameText by remember(item.text) { mutableStateOf(item.text) }
 
-                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(checked = item.isDone, onCheckedChange = { viewModel.toggleChecklistItem(item) })
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp))
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = item.isDone, onCheckedChange = { viewModel.toggleChecklistItem(item) })
 
-                                    if (isEditingTitle) {
-                                        OutlinedTextField(
-                                            value = editedTitle,
-                                            onValueChange = { editedTitle = it },
-                                            modifier = Modifier.weight(1f),
-                                            singleLine = true
-                                        )
-                                        IconButton(onClick = {
-                                            viewModel.updateChecklistItem(item, editedTitle, item.notes, item.isDone)
-                                            isEditingTitle = false
-                                        }) {
-                                            Icon(Icons.Default.Check, contentDescription = "Save Title")
+                                        if (isRenamingChecklist) {
+                                            OutlinedTextField(
+                                                value = renameText,
+                                                onValueChange = { renameText = it },
+                                                modifier = Modifier.weight(1f),
+                                                singleLine = true
+                                            )
+                                            IconButton(onClick = {
+                                                viewModel.updateChecklistItem(item, renameText, item.notes, item.isDone)
+                                                isRenamingChecklist = false
+                                            }) {
+                                                Icon(Icons.Default.Check, contentDescription = "Confirm Name", tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        } else {
+                                            Text(
+                                                text = item.text,
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
+                                                modifier = Modifier.weight(1f).clickable { isRenamingChecklist = true }
+                                            )
+                                            IconButton(onClick = { isRenamingChecklist = true }) {
+                                                Icon(Icons.Default.Edit, contentDescription = "Rename Checklist", modifier = Modifier.size(18.dp))
+                                            }
                                         }
-                                    } else {
-                                        Text(
-                                            text = item.text,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
-                                            modifier = Modifier.weight(1f).clickable { isEditingTitle = true }
-                                        )
-                                        IconButton(onClick = { isEditingTitle = true }) {
-                                            Icon(Icons.Default.Edit, contentDescription = "Edit Title", modifier = Modifier.size(18.dp))
+
+                                        IconButton(onClick = { viewModel.moveChecklistItem(item, true) }) {
+                                            Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
+                                        }
+                                        IconButton(onClick = { viewModel.moveChecklistItem(item, false) }) {
+                                            Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
+                                        }
+                                        IconButton(onClick = { viewModel.deleteChecklistItem(item) }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                         }
                                     }
 
-                                    IconButton(onClick = { isEditingNote = !isEditingNote }) {
-                                        Icon(Icons.Default.NoteAlt, contentDescription = "Note", modifier = Modifier.size(18.dp))
-                                    }
-                                    IconButton(onClick = { viewModel.moveChecklistItem(item, true) }) {
-                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
-                                    }
-                                    IconButton(onClick = { viewModel.moveChecklistItem(item, false) }) {
-                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
-                                    }
-                                    IconButton(onClick = { viewModel.deleteChecklistItem(item) }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                                    }
-                                }
-
-                                Text(
-                                    "Created: ${dateFormat.format(Date(item.createdTimestamp))} | Modified: ${dateFormat.format(Date(item.lastModifiedTimestamp))}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    modifier = Modifier.padding(start = 40.dp)
-                                )
-
-                                if (isEditingNote) {
-                                    OutlinedTextField(
-                                        value = editedNote,
-                                        onValueChange = {
-                                            editedNote = it
-                                            viewModel.updateChecklistItem(item, item.text, it, item.isDone)
-                                        },
-                                        label = { Text("Checklist Item Note") },
-                                        modifier = Modifier.fillMaxWidth().padding(start = 40.dp, top = 4.dp)
+                                    Text(
+                                        "Created: ${dateFormat.format(Date(item.createdTimestamp))} | Modified: ${dateFormat.format(Date(item.lastModifiedTimestamp))}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        modifier = Modifier.padding(start = 36.dp)
                                     )
                                 }
                             }
@@ -1745,6 +2000,7 @@ fun FullScreenTaskEditor(
                     }
                 }
 
+                // ATTACHMENTS & CONTACTS WITH DATES
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -1826,9 +2082,6 @@ fun FullScreenTaskEditor(
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                         liveAttachments.forEach { att ->
-                            var showAttNote by remember { mutableStateOf(false) }
-                            var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
-
                             Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                                 Column(modifier = Modifier.padding(8.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1859,6 +2112,7 @@ fun FullScreenTaskEditor(
                                         ) {
                                             Text(att.displayName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                                             att.contactPhone?.let { Text("Phone: $it", style = MaterialTheme.typography.bodySmall) }
+                                            // VISIBLE CREATED AND MODIFIED TIMESTAMPS FOR CONTACTS & ATTACHMENTS
                                             Text("Created: ${dateFormat.format(Date(att.createdTimestamp))} | Modified: ${dateFormat.format(Date(att.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                         }
 
@@ -1874,9 +2128,6 @@ fun FullScreenTaskEditor(
                                             }
                                         }
 
-                                        IconButton(onClick = { showAttNote = !showAttNote }) {
-                                            Icon(Icons.Default.EditNote, contentDescription = "Note")
-                                        }
                                         IconButton(onClick = { viewModel.moveAttachment(att, true) }) {
                                             Icon(Icons.Default.ArrowUpward, contentDescription = "Up")
                                         }
@@ -1886,18 +2137,6 @@ fun FullScreenTaskEditor(
                                         IconButton(onClick = { viewModel.deleteAttachment(att) }) {
                                             Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                                         }
-                                    }
-
-                                    if (showAttNote) {
-                                        OutlinedTextField(
-                                            value = attNoteText,
-                                            onValueChange = {
-                                                attNoteText = it
-                                                viewModel.updateAttachment(att, att.displayName, it, att.contactPhone, att.isContactPending)
-                                            },
-                                            label = { Text("Attachment Note") },
-                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
-                                        )
                                     }
                                 }
                             }
