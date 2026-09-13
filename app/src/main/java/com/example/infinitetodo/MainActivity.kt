@@ -292,13 +292,10 @@ fun MainAppScaffold(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// PROMINENT PRIORITY BADGE WITH FULL URGENT VISIBILITY
-// -----------------------------------------------------------------------------------------
 @Composable
 fun PriorityBadge(priority: TaskPriority) {
     val bg = when (priority) {
-        TaskPriority.URGENT -> Color(0xFFD32F2F) // Bold Crimson Red for Urgent
+        TaskPriority.URGENT -> Color(0xFFD32F2F)
         TaskPriority.HIGH -> Color(0xFFF57C00)
         TaskPriority.MEDIUM -> Color(0xFF0288D1)
         TaskPriority.LOW -> Color(0xFF689F38)
@@ -314,9 +311,6 @@ fun PriorityBadge(priority: TaskPriority) {
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// HIGHLIGHT SEARCH TEXT HELPER
-// -----------------------------------------------------------------------------------------
 @Composable
 fun HighlightedText(
     text: String,
@@ -359,9 +353,6 @@ fun HighlightedText(
     Text(annotated, style = style, fontWeight = fontWeight)
 }
 
-// -----------------------------------------------------------------------------------------
-// BREADCRUMB LINEAGE BAR
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskBreadcrumbBar(
     viewModel: TaskViewModel,
@@ -421,9 +412,6 @@ fun TaskBreadcrumbBar(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// FILTER BAR WITH TAGS, PRIORITY (INCLUDING URGENT), STATUS & DATES
-// -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskFilterHeaderBar(
@@ -477,7 +465,6 @@ fun TaskFilterHeaderBar(
 
         AnimatedVisibility(visible = showFilterSheet) {
             Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // TAG FILTER ROW
                 if (availableTags.isNotEmpty()) {
                     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Tags:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
@@ -495,7 +482,6 @@ fun TaskFilterHeaderBar(
                     }
                 }
 
-                // Priority chips (Low, Medium, High, URGENT clearly shown)
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Priority:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
                     TaskPriority.values().forEach { priority ->
@@ -514,7 +500,6 @@ fun TaskFilterHeaderBar(
                     }
                 }
 
-                // Status chips
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Status:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
                     FilterChip(
@@ -539,7 +524,6 @@ fun TaskFilterHeaderBar(
                     )
                 }
 
-                // Date ranges
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Dates:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
 
@@ -580,9 +564,6 @@ fun TaskFilterHeaderBar(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// 1. HOME DASHBOARD TAB (WITH ACCURATE URGENT AND PRIORITY SUMMARY)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
     viewModel: TaskViewModel,
@@ -754,9 +735,6 @@ fun HomeDashboardTab(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// 2. TASKS TREE TAB (WITH URGENT VISIBILITY, SEARCH HIGHLIGHTING & LAYER DEPTH)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
     viewModel: TaskViewModel,
@@ -842,9 +820,6 @@ fun TasksTreeTab(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// 3. CALENDAR AGENDA TAB (SHOWS COMPLETE HIERARCHY PATH ON TOP)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun CalendarAgendaTab(
     viewModel: TaskViewModel,
@@ -944,9 +919,6 @@ fun CalendarAgendaTab(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// 4. GANTT CHART TAB (WITH HIERARCHY PATH & ACCORDION "SHOW DETAILS")
-// -----------------------------------------------------------------------------------------
 @Composable
 fun GanttChartTab(
     viewModel: TaskViewModel,
@@ -1026,7 +998,7 @@ fun GanttChartTab(
                                         if (task.isCompleted) Color(0xFF43A047)
                                         else when (task.priority) {
                                             TaskPriority.URGENT -> Color(0xFFD32F2F)
-                                            TaskPriority.HIGH -> Color(0xFFFB8C00)
+                                            TaskPriority.HIGH -> Color(0xFFF57C00)
                                             TaskPriority.MEDIUM -> Color(0xFF0288D1)
                                             TaskPriority.LOW -> Color(0xFF689F38)
                                         }
@@ -1063,9 +1035,6 @@ fun GanttChartTab(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// 5. SETTINGS MANAGER TAB
-// -----------------------------------------------------------------------------------------
 @Composable
 fun SettingsManagerTab(
     currentTheme: AppThemeMode,
@@ -1228,9 +1197,6 @@ fun SettingsManagerTab(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (WITH PROMINENT URGENT BADGE & LAYER COUNTER)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
     task: TaskItem,
@@ -1289,7 +1255,6 @@ fun TaskNodeView(
             elevation = CardDefaults.cardElevation(defaultElevation = if (isUndocked) 8.dp else 2.dp)
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
-                // ROW 1: Drag, Checkbox, Title & LAYER COUNTER BADGE + URGENT BADGE
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -1407,7 +1372,6 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 2: Timestamps
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1418,7 +1382,6 @@ fun TaskNodeView(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // ROW 3: Contacts Chips (Always Visible Horizontally)
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -1449,7 +1412,6 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 4: Action Toolbar
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1503,7 +1465,7 @@ fun TaskNodeView(
                     viewMode = viewMode,
                     searchQuery = searchQuery,
                     viewModel = viewModel,
-                    onDrillInto = { /* Nested drill down */ },
+                    onDrillInto = { },
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
                     onMoveToTarget = onMoveToTarget,
@@ -1514,9 +1476,6 @@ fun TaskNodeView(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// POPUP DIALOG ON OPENING HYPERLINK
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskHyperlinkPopupDialog(
     task: TaskItem,
@@ -1562,9 +1521,6 @@ fun TaskHyperlinkPopupDialog(
     )
 }
 
-// -----------------------------------------------------------------------------------------
-// FULL SCREEN WORKSPACE VIEW WITH DATE+CLOCK REPEAT & COMPLETE URGENT SELECTOR
-// -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullScreenTaskEditor(
@@ -1585,7 +1541,7 @@ fun FullScreenTaskEditor(
     var dueMs by remember { mutableStateOf(task.dueTimestamp) }
     var repeatRule by remember { mutableStateOf(task.repeatRule) }
     var repeatIntervalDays by remember { mutableStateOf(task.repeatIntervalDays) }
-    var repeatTimestampMs by remember { mutableStateOf(task.repeatTimestampMs) }
+    var repeatTimestampMs by remember { mutableStateOf<Long?>(task.repeatTimestampMs) }
     var linkedIds by remember { mutableStateOf(task.linkedTaskIds ?: "") }
 
     var isRecordingAudio by remember { mutableStateOf(false) }
@@ -1749,7 +1705,6 @@ fun FullScreenTaskEditor(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // PRIORITY SELECTOR (EXPLICIT URGENT OPTION)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1782,7 +1737,6 @@ fun FullScreenTaskEditor(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // SCHEDULE, DUE DATES & RECURRENCE WITH DATE & TIME PICKER
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Schedule, Due Dates & Recurrence", fontWeight = FontWeight.Bold)
@@ -1819,7 +1773,6 @@ fun FullScreenTaskEditor(
                             }
                         }
 
-                        // REPEAT CHIPS
                         Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             RecurrenceRule.values().forEach { rule ->
                                 FilterChip(
@@ -1830,7 +1783,6 @@ fun FullScreenTaskEditor(
                             }
                         }
 
-                        // REPEAT WITH DATE PICKER ON CALENDAR & TIME PICKER ON CLOCK
                         if (repeatRule != RecurrenceRule.NONE) {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 OutlinedButton(
@@ -1838,9 +1790,7 @@ fun FullScreenTaskEditor(
                                         val cal = Calendar.getInstance().apply {
                                             repeatTimestampMs?.let { timeInMillis = it }
                                         }
-                                        // 1. Calendar Date Picker
                                         DatePickerDialog(context, { _, y, m, d ->
-                                            // 2. Clock Time Picker
                                             TimePickerDialog(context, { _, h, min ->
                                                 cal.set(y, m, d, h, min)
                                                 repeatTimestampMs = cal.timeInMillis
@@ -1875,7 +1825,6 @@ fun FullScreenTaskEditor(
                     }
                 }
 
-                // CROSS-TASK LINKING WITH HYPERLINK POPUP
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Cross-Task Linking", fontWeight = FontWeight.Bold)
@@ -1943,7 +1892,6 @@ fun FullScreenTaskEditor(
                     }
                 }
 
-                // CHECKLISTS WITH DECONGESTED RENAMING WORKFLOW
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
@@ -2027,7 +1975,6 @@ fun FullScreenTaskEditor(
                     }
                 }
 
-                // ATTACHMENTS & CONTACTS ENGINE
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2176,9 +2123,6 @@ fun FullScreenTaskEditor(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// DESTINATION PICKER DIALOG (MOVE / COPY)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskDestinationDialog(
     title: String,
