@@ -28,11 +28,14 @@ class BackupRestoreManager(private val context: Context) {
                     put("parentId", t.parentId ?: JSONObject.NULL)
                     put("title", t.title)
                     put("notes", t.notes ?: JSONObject.NULL)
+                    put("tags", t.tags ?: JSONObject.NULL)
                     put("isCompleted", t.isCompleted)
                     put("priority", t.priority.name)
                     put("reminderTimestamp", t.reminderTimestamp ?: JSONObject.NULL)
                     put("dueTimestamp", t.dueTimestamp ?: JSONObject.NULL)
                     put("repeatRule", t.repeatRule.name)
+                    put("repeatIntervalDays", t.repeatIntervalDays)
+                    put("repeatTimestampMs", t.repeatTimestampMs ?: JSONObject.NULL)
                     put("linkedTaskIds", t.linkedTaskIds ?: JSONObject.NULL)
                     put("orderIndex", t.orderIndex)
                     put("createdTimestamp", t.createdTimestamp)
@@ -81,19 +84,19 @@ class BackupRestoreManager(private val context: Context) {
             zipOut.write(rootJson.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            // Package actual files (audio recordings, captured videos, images, and documents)
             for (att in attachments) {
                 try {
                     if (att.type == AttachmentType.AUDIO && att.uriString.startsWith("/")) {
                         val file = File(att.uriString)
                         if (file.exists() && file.isFile) {
                             zipOut.putNextEntry(ZipEntry("files/att_${att.id}_${file.name}"))
-                            file.inputStream().use { input -> input.copyTo(zipOut) }
+                            file.inputStream().use { input: FileInputStream -> input.copyTo(zipOut) }
                             zipOut.closeEntry()
                         }
                     } else if (att.type != AttachmentType.CONTACT) {
                         val uri = Uri.parse(att.uriString)
-                        context.contentResolver.openInputStream(uri)?.use { inStream ->
+                        val stream = context.contentResolver.openInputStream(uri)
+                        stream?.use { inStream: InputStream ->
                             val safeName = att.displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
                             zipOut.putNextEntry(ZipEntry("files/att_${att.id}_$safeName"))
                             inStream.copyTo(zipOut)
@@ -142,7 +145,7 @@ class BackupRestoreManager(private val context: Context) {
                 } else if (entryName.startsWith("files/")) {
                     val cleanFileName = entryName.substringAfter("files/")
                     val targetFile = File(restoredFilesDir, cleanFileName)
-                    targetFile.outputStream().use { zipIn.copyTo(it) }
+                    targetFile.outputStream().use { outStream: FileOutputStream -> zipIn.copyTo(outStream) }
                     fileMap[entryName] = targetFile.toURI().toString()
                 }
                 zipIn.closeEntry()
@@ -178,11 +181,14 @@ class BackupRestoreManager(private val context: Context) {
                     parentId = mappedParentId,
                     title = obj.getString("title"),
                     notes = if (obj.isNull("notes")) null else obj.getString("notes"),
+                    tags = if (obj.isNull("tags")) null else obj.getString("tags"),
                     isCompleted = obj.optBoolean("isCompleted", false),
                     priority = priorityVal,
                     reminderTimestamp = if (obj.isNull("reminderTimestamp")) null else obj.getLong("reminderTimestamp"),
                     dueTimestamp = if (obj.isNull("dueTimestamp")) null else obj.getLong("dueTimestamp"),
                     repeatRule = repeatVal,
+                    repeatIntervalDays = obj.optInt("repeatIntervalDays", 1),
+                    repeatTimestampMs = if (obj.isNull("repeatTimestampMs")) null else obj.getLong("repeatTimestampMs"),
                     calendarEventId = null,
                     linkedTaskIds = if (obj.isNull("linkedTaskIds")) null else obj.getString("linkedTaskIds"),
                     orderIndex = obj.optInt("orderIndex", 0),
