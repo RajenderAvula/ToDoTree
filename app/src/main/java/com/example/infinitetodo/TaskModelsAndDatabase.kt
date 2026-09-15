@@ -9,7 +9,7 @@ enum class TaskPriority {
 }
 
 enum class RecurrenceRule {
-    NONE, DAILY, WEEKLY, MONTHLY, CUSTOM
+    NONE, DAILY, WEEKLY, FORTNIGHTLY, MONTHLY, SIX_MONTHLY, YEARLY, CUSTOM
 }
 
 enum class AttachmentType {
@@ -39,8 +39,12 @@ data class TaskItem(
     val reminderTimestamp: Long? = null,
     val dueTimestamp: Long? = null,
     val repeatRule: RecurrenceRule = RecurrenceRule.NONE,
-    val repeatIntervalDays: Int = 1,
-    val repeatTimestampMs: Long? = null,
+    val repeatIntervalDays: Int = 0,
+    val repeatIntervalHours: Int = 0,
+    val repeatIntervalMinutes: Int = 0,
+    val repeatStartDate: Long? = null,
+    val repeatStartTimeMs: Long? = null,
+    val repeatEndTimeMs: Long? = null,
     val calendarEventId: Long? = null,
     val linkedTaskIds: String? = null,
     val orderIndex: Int = 0,
@@ -196,7 +200,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, RichAttachment::class],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(TaskConverters::class)
