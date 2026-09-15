@@ -215,7 +215,6 @@ fun MainAppScaffold(
             }
         }
 
-        // FULL SCREEN TASK WORKSPACE MODAL
         activeFullScreenTask?.let { taskToEdit ->
             key(taskToEdit.id) {
                 FullScreenTaskWorkspaceDialog(
@@ -256,9 +255,6 @@ fun MainAppScaffold(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// CONFIRMATION DIALOG FOR ANY DELETE ACTION
-// -----------------------------------------------------------------------------------------
 @Composable
 fun DeleteConfirmationDialog(
     title: String,
@@ -286,9 +282,6 @@ fun DeleteConfirmationDialog(
     )
 }
 
-// -----------------------------------------------------------------------------------------
-// PROMINENT URGENT & STANDARD PRIORITY BADGES
-// -----------------------------------------------------------------------------------------
 @Composable
 fun PriorityBadge(priority: TaskPriority) {
     val bg = when (priority) {
@@ -316,9 +309,6 @@ fun PriorityBadge(priority: TaskPriority) {
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// HIGH CONTRAST SEARCH TEXT HIGHLIGHTING
-// -----------------------------------------------------------------------------------------
 @Composable
 fun HighlightedText(
     text: String,
@@ -346,8 +336,8 @@ fun HighlightedText(
                 append(text.substring(startIndex, index))
                 pushStyle(
                     SpanStyle(
-                        background = Color(0xFFFFD54F), // High-visibility Amber
-                        color = Color(0xFF212121),     // Deep Black for strong contrast
+                        background = Color(0xFFFFD54F),
+                        color = Color(0xFF212121),
                         fontWeight = FontWeight.Bold
                     )
                 )
@@ -519,9 +509,6 @@ fun TaskFilterHeaderBar(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// 1. HOME DASHBOARD TAB (WITH PATH HIERARCHY ON TOP OF EVERY TASK)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
     viewModel: TaskViewModel,
@@ -613,7 +600,6 @@ fun HomeDashboardTab(
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        // PATH HIERARCHY SHOWN ON TOP OF EVERY TASK IN HOME TAB
                         if (hierarchyPath.isNotBlank()) {
                             Text(
                                 text = "Path: $hierarchyPath",
@@ -713,9 +699,6 @@ fun HomeDashboardTab(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// 2. TASKS TREE TAB (OPENINFULL ICON RELIABLY LAUNCHES FULLSCREEN)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
     viewModel: TaskViewModel,
@@ -1168,9 +1151,6 @@ fun SettingsManagerTab(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (CARD BODY & OPENINFULL ICON BOTH DIRECTLY OPEN WORKSPACE)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
     task: TaskItem,
@@ -1318,7 +1298,6 @@ fun TaskNodeView(
 
                     Spacer(Modifier.width(6.dp))
 
-                    // TAPPING TITLE COLUMN DIRECTLY OPENS FULL SCREEN WORKSPACE
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -1437,7 +1416,6 @@ fun TaskNodeView(
                         IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyToTarget(task) }) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Copy Target", modifier = Modifier.size(17.dp))
                         }
-                        // DEDICATED FULL SCREEN BUTTON
                         IconButton(
                             modifier = Modifier.size(36.dp),
                             onClick = { onOpenFullScreen(task) }
@@ -1594,7 +1572,6 @@ fun SingleTaskEditorView(
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
 
-    // Advanced Recurrence Parameters
     var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }
     var repeatIntervalDays by remember(task.id) { mutableIntStateOf(task.repeatIntervalDays) }
     var repeatIntervalHours by remember(task.id) { mutableIntStateOf(task.repeatIntervalHours) }
@@ -1609,7 +1586,6 @@ fun SingleTaskEditorView(
     var manualPhone by remember { mutableStateOf("") }
     var manualContactName by remember { mutableStateOf("") }
 
-    // Confirmation dialog states
     var itemPendingDeleteChecklist by remember { mutableStateOf<ChecklistItem?>(null) }
     var itemPendingDeleteAttachment by remember { mutableStateOf<RichAttachment?>(null) }
 
@@ -1833,9 +1809,6 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // ---------------------------------------------------------------------------------
-        // EXPANDED RECURRENCE SETTINGS UI
-        // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Schedule, Due Dates & Recurrence", fontWeight = FontWeight.Bold)
@@ -1876,7 +1849,6 @@ fun SingleTaskEditorView(
 
                 Text("Repeat Options:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
 
-                // Presets: Daily Weekly Fortnightly Monthly Six Monthly Yearly Custom
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1900,7 +1872,6 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                // If non-custom preset is chosen (Hourly time config)
                 if (repeatRule != RecurrenceRule.NONE && repeatRule != RecurrenceRule.CUSTOM) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1925,7 +1896,6 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                // If Custom is chosen: Every [X] days [Y] hours [Z] min, Start date, Start time, End time
                 if (repeatRule == RecurrenceRule.CUSTOM) {
                     Column(
                         modifier = Modifier
@@ -1965,7 +1935,6 @@ fun SingleTaskEditorView(
                         }
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // Start Time Picker
                             OutlinedButton(
                                 onClick = {
                                     val c = Calendar.getInstance().apply { repeatStartTimeMs?.let { timeInMillis = it } }
@@ -1980,7 +1949,6 @@ fun SingleTaskEditorView(
                                 Text(repeatStartTimeMs?.let { "Start: ${timeFormat.format(Date(it))}" } ?: "Start time [08:00 AM]")
                             }
 
-                            // End Time Picker
                             OutlinedButton(
                                 onClick = {
                                     val c = Calendar.getInstance().apply { repeatEndTimeMs?.let { timeInMillis = it } }
@@ -1996,7 +1964,6 @@ fun SingleTaskEditorView(
                             }
                         }
 
-                        // Start Date Picker
                         OutlinedButton(
                             onClick = {
                                 val c = Calendar.getInstance().apply { repeatStartDate?.let { timeInMillis = it } }
@@ -2144,7 +2111,6 @@ fun SingleTaskEditorView(
                                 }
                             }
 
-                            // DEDICATED UNCLIPPED EDITING CONTAINER
                             AnimatedVisibility(visible = isRenamingTitle) {
                                 Column(
                                     modifier = Modifier
@@ -2237,7 +2203,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // ATTACHMENTS & CONTACTS (WITH CONFIRMATION BEFORE DELETION)
+        // ATTACHMENTS & CONTACTS (SPREAD HORIZONTALLY ACROSS UI LENGTH)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
