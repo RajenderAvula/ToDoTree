@@ -686,7 +686,7 @@ fun HomeDashboardTab(
                                             Spacer(Modifier.width(4.dp))
                                             Text(
                                                 "${contact.displayName}: ${contact.contactPhone ?: "No Phone"} • ${if (contact.isContactPending) "Pending" else "Done"}",
-                                                style = MaterialTheme.typography.labelSmall,
+                                                style = MaterialTheme.typography.bodySmall,
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
@@ -1565,7 +1565,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (UNIFIED REPEAT ACROSS ALL PRESETS & HORIZONTAL CARDS)
+// SINGLE TASK EDITOR VIEW (UNIFIED REPEAT & 2-TIER FULL-WIDTH HORIZONTAL LAYOUT)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1587,11 +1587,11 @@ fun SingleTaskEditorView(
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
 
-    // Unified Repeat States
+    // Universal Repeat Parameters
     var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }
-    var repeatCustomDaysText by remember(task.id) { mutableStateOf(task.repeatIntervalDays.toString()) }
-    var repeatCustomHoursText by remember(task.id) { mutableStateOf(task.repeatIntervalHours.toString()) }
-    var repeatCustomMinutesText by remember(task.id) { mutableStateOf(task.repeatIntervalMinutes.toString()) }
+    var repeatDaysText by remember(task.id) { mutableStateOf(task.repeatIntervalDays.toString()) }
+    var repeatHoursText by remember(task.id) { mutableStateOf(task.repeatIntervalHours.toString()) }
+    var repeatMinutesText by remember(task.id) { mutableStateOf(task.repeatIntervalMinutes.toString()) }
     var repeatStartDate by remember(task.id) { mutableStateOf(task.repeatStartDate ?: System.currentTimeMillis()) }
     var repeatStartTimeMs by remember(task.id) { mutableStateOf(task.repeatStartTimeMs ?: System.currentTimeMillis()) }
     var repeatEndTimeMs by remember(task.id) { mutableStateOf(task.repeatEndTimeMs ?: (System.currentTimeMillis() + 43200000L)) }
@@ -1731,9 +1731,9 @@ fun SingleTaskEditorView(
 
             Button(
                 onClick = {
-                    val days = repeatCustomDaysText.toIntOrNull() ?: 0
-                    val hours = repeatCustomHoursText.toIntOrNull() ?: 0
-                    val minutes = repeatCustomMinutesText.toIntOrNull() ?: 0
+                    val days = repeatDaysText.toIntOrNull() ?: 0
+                    val hours = repeatHoursText.toIntOrNull() ?: 0
+                    val minutes = repeatMinutesText.toIntOrNull() ?: 0
 
                     viewModel.saveTask(
                         task = task,
@@ -1830,7 +1830,7 @@ fun SingleTaskEditorView(
         )
 
         // ---------------------------------------------------------------------------------
-        // UNIVERSAL REPEAT & SCHEDULE (START TIME, END TIME, START DATE & INTERVALS FOR ALL)
+        // REPEAT CONFIGURATION (DAYS, HOURS, MIN, START DATE, START TIME, END TIME FOR ALL)
         // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1872,7 +1872,6 @@ fun SingleTaskEditorView(
 
                 Text("Repeat Configuration", fontWeight = FontWeight.Bold)
 
-                // Presets Row
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1892,14 +1891,13 @@ fun SingleTaskEditorView(
                             selected = repeatRule == rule,
                             onClick = {
                                 repeatRule = rule
-                                // Auto-populate days counter based on chosen preset
                                 when (rule) {
-                                    RecurrenceRule.DAILY -> { repeatCustomDaysText = "1"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
-                                    RecurrenceRule.WEEKLY -> { repeatCustomDaysText = "7"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
-                                    RecurrenceRule.FORTNIGHTLY -> { repeatCustomDaysText = "14"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
-                                    RecurrenceRule.MONTHLY -> { repeatCustomDaysText = "30"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
-                                    RecurrenceRule.SIX_MONTHLY -> { repeatCustomDaysText = "180"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
-                                    RecurrenceRule.YEARLY -> { repeatCustomDaysText = "365"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
+                                    RecurrenceRule.DAILY -> { repeatDaysText = "1"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.WEEKLY -> { repeatDaysText = "7"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.FORTNIGHTLY -> { repeatDaysText = "14"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.MONTHLY -> { repeatDaysText = "30"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.SIX_MONTHLY -> { repeatDaysText = "180"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.YEARLY -> { repeatDaysText = "365"; repeatHoursText = "0"; repeatMinutesText = "0" }
                                     else -> {}
                                 }
                             },
@@ -1908,7 +1906,6 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                // If any repetition is active, show Days, Hours, Minutes, Start Time, End Time & Start Date
                 if (repeatRule != RecurrenceRule.NONE) {
                     Column(
                         modifier = Modifier
@@ -1925,31 +1922,30 @@ fun SingleTaskEditorView(
                         ) {
                             Text("Days:")
                             OutlinedTextField(
-                                value = repeatCustomDaysText,
-                                onValueChange = { input -> repeatCustomDaysText = input.filter { it.isDigit() } },
+                                value = repeatDaysText,
+                                onValueChange = { input -> repeatDaysText = input.filter { it.isDigit() } },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.width(64.dp),
                                 singleLine = true
                             )
                             Text("Hrs:")
                             OutlinedTextField(
-                                value = repeatCustomHoursText,
-                                onValueChange = { input -> repeatCustomHoursText = input.filter { it.isDigit() } },
+                                value = repeatHoursText,
+                                onValueChange = { input -> repeatHoursText = input.filter { it.isDigit() } },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.width(64.dp),
                                 singleLine = true
                             )
                             Text("Min:")
                             OutlinedTextField(
-                                value = repeatCustomMinutesText,
-                                onValueChange = { input -> repeatCustomMinutesText = input.filter { it.isDigit() } },
+                                value = repeatMinutesText,
+                                onValueChange = { input -> repeatMinutesText = input.filter { it.isDigit() } },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.width(64.dp),
                                 singleLine = true
                             )
                         }
 
-                        // Start Time & End Time
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = {
@@ -1980,7 +1976,6 @@ fun SingleTaskEditorView(
                             }
                         }
 
-                        // Start Date Picker
                         OutlinedButton(
                             onClick = {
                                 val c = Calendar.getInstance().apply { repeatStartDate?.let { timeInMillis = it } }
@@ -1994,12 +1989,11 @@ fun SingleTaskEditorView(
                             Text(repeatStartDate?.let { "Start date: [${dateFormat.format(Date(it))}]" } ?: "Set start date")
                         }
 
-                        // Explicit Action Button to Apply Repeat Pattern
                         Button(
                             onClick = {
-                                val days = repeatCustomDaysText.toIntOrNull() ?: 0
-                                val hours = repeatCustomHoursText.toIntOrNull() ?: 0
-                                val minutes = repeatCustomMinutesText.toIntOrNull() ?: 0
+                                val days = repeatDaysText.toIntOrNull() ?: 0
+                                val hours = repeatHoursText.toIntOrNull() ?: 0
+                                val minutes = repeatMinutesText.toIntOrNull() ?: 0
 
                                 viewModel.saveTask(
                                     task = task,
@@ -2018,7 +2012,7 @@ fun SingleTaskEditorView(
                                     repeatEndTimeMs = repeatEndTimeMs,
                                     linkedTaskIds = task.linkedTaskIds
                                 )
-                                Toast.makeText(context, "Repeat pattern configured ✓", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Repeat pattern applied ✓", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -2109,10 +2103,10 @@ fun SingleTaskEditorView(
         }
 
         // ---------------------------------------------------------------------------------
-        // CHECKLISTS (FULL-WIDTH HORIZONTAL SPREAD ACROSS ENTIRE UI BREADTH)
+        // CHECKLISTS (FULL SCREEN BREADTH: 2-TIER HORIZONTAL LAYOUT)
         // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
 
                 liveChecklist.forEach { item ->
@@ -2125,44 +2119,67 @@ fun SingleTaskEditorView(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // TIER 1: Full-width Title & Checkbox
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Checkbox(
                                     checked = item.isDone,
-                                    onCheckedChange = { viewModel.toggleChecklistItem(item) }
+                                    onCheckedChange = { viewModel.toggleChecklistItem(item) },
+                                    modifier = Modifier.size(32.dp)
                                 )
-
+                                Spacer(Modifier.width(8.dp))
                                 Text(
                                     text = item.text,
-                                    style = MaterialTheme.typography.bodyLarge,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
                                     textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable { isRenamingTitle = !isRenamingTitle }
                                 )
+                            }
 
-                                IconButton(onClick = { isRenamingTitle = !isRenamingTitle }) {
-                                    Icon(Icons.Default.Edit, contentDescription = "Edit Text", modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(onClick = { isNoteExpanded = !isNoteExpanded }) {
-                                    Icon(
-                                        Icons.Default.NoteAlt,
-                                        contentDescription = "Expand Note",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = if (!item.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                                IconButton(onClick = { viewModel.moveChecklistItem(item, true) }) {
-                                    Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(onClick = { viewModel.moveChecklistItem(item, false) }) {
-                                    Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(onClick = { itemPendingDeleteChecklist = item }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                            // TIER 2: Full-width Timestamp & Action Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.createdTimestamp))}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { isRenamingTitle = !isRenamingTitle }) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Edit Text", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { isNoteExpanded = !isNoteExpanded }) {
+                                        Icon(
+                                            Icons.Default.NoteAlt,
+                                            contentDescription = "Note",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = if (!item.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveChecklistItem(item, true) }) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveChecklistItem(item, false) }) {
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { itemPendingDeleteChecklist = item }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                    }
                                 }
                             }
 
@@ -2178,90 +2195,62 @@ fun SingleTaskEditorView(
                                         value = renameTitleText,
                                         onValueChange = { renameTitleText = it },
                                         label = { Text("Edit Checklist Name") },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        minLines = 1,
-                                        maxLines = 3
+                                        modifier = Modifier.fillMaxWidth()
                                     )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.End
-                                    ) {
-                                        TextButton(onClick = { isRenamingTitle = false }) {
-                                            Text("Cancel")
-                                        }
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                        TextButton(onClick = { isRenamingTitle = false }) { Text("Cancel") }
                                         Spacer(Modifier.width(8.dp))
-                                        Button(
-                                            onClick = {
-                                                viewModel.updateChecklistItem(item, renameTitleText, item.notes, item.isDone)
-                                                isRenamingTitle = false
-                                            }
-                                        ) {
-                                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(Modifier.width(4.dp))
-                                            Text("Save Name")
-                                        }
+                                        Button(onClick = {
+                                            viewModel.updateChecklistItem(item, renameTitleText, item.notes, item.isDone)
+                                            isRenamingTitle = false
+                                        }) { Text("Save Name") }
                                     }
                                 }
                             }
 
                             AnimatedVisibility(visible = isNoteExpanded) {
-                                Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    OutlinedTextField(
-                                        value = itemNoteText,
-                                        onValueChange = {
-                                            itemNoteText = it
-                                            viewModel.updateChecklistItem(item, item.text, it, item.isDone)
-                                        },
-                                        label = { Text("Checklist Note / Description") },
-                                        placeholder = { Text("Add extra instructions, links, or sub-details...") },
-                                        minLines = 2,
-                                        maxLines = 6,
-                                        singleLine = false,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
+                                OutlinedTextField(
+                                    value = itemNoteText,
+                                    onValueChange = {
+                                        itemNoteText = it
+                                        viewModel.updateChecklistItem(item, item.text, it, item.isDone)
+                                    },
+                                    label = { Text("Checklist Note / Description") },
+                                    minLines = 2,
+                                    maxLines = 6,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
-
-                            Text(
-                                "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.createdTimestamp))} | Modified: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.lastModifiedTimestamp))}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
                         }
                     }
                 }
 
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = newChecklistText,
                         onValueChange = { newChecklistText = it },
                         placeholder = { Text("New checklist item...") },
-                        minLines = 1,
-                        maxLines = 4,
-                        singleLine = false,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
                     )
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Button(onClick = {
-                            if (newChecklistText.isNotBlank()) {
-                                viewModel.addChecklistItem(task.id, newChecklistText)
-                                newChecklistText = ""
-                            }
-                        }) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Add Item")
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = {
+                        if (newChecklistText.isNotBlank()) {
+                            viewModel.addChecklistItem(task.id, newChecklistText)
+                            newChecklistText = ""
                         }
+                    }) {
+                        Text("Add")
                     }
                 }
             }
         }
 
         // ---------------------------------------------------------------------------------
-        // ATTACHMENTS & CONTACTS (FULL-WIDTH HORIZONTAL SPREAD ACROSS ENTIRE UI BREADTH)
+        // ATTACHMENTS & CONTACTS (FULL SCREEN BREADTH: 2-TIER HORIZONTAL LAYOUT)
         // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
 
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2270,7 +2259,6 @@ fun SingleTaskEditorView(
                         Spacer(Modifier.width(4.dp))
                         Text("Add Files")
                     }
-
                     OutlinedButton(onClick = {
                         val videoFile = File(context.cacheDir, "video_${System.currentTimeMillis()}.mp4")
                         val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", videoFile)
@@ -2281,7 +2269,6 @@ fun SingleTaskEditorView(
                         Spacer(Modifier.width(4.dp))
                         Text("Record Video")
                     }
-
                     OutlinedButton(onClick = {
                         if (isRecordingAudio) {
                             recordedAudioPath = audioHelper.stopRecording()
@@ -2298,7 +2285,6 @@ fun SingleTaskEditorView(
                         Spacer(Modifier.width(4.dp))
                         Text(if (isRecordingAudio) "Stop Audio" else "Record Audio")
                     }
-
                     OutlinedButton(onClick = { contactPickerLauncher.launch(null) }) {
                         Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
@@ -2317,7 +2303,7 @@ fun SingleTaskEditorView(
                     OutlinedTextField(
                         value = manualPhone,
                         onValueChange = { manualPhone = it },
-                        label = { Text("Mobile #") },
+                        label = { Text("Phone") },
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(6.dp))
@@ -2338,21 +2324,37 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider()
 
                 liveAttachments.forEach { att ->
                     var isAttachmentNoteExpanded by remember { mutableStateOf(false) }
                     var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
 
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // TIER 1: Full-width Header: Icon, Name/Phone, & Status
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(Uri.parse(att.uriString), "*/*")
+                                                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                            }
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
+                                            Toast.makeText(context, "Cannot preview file", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -2365,90 +2367,81 @@ fun SingleTaskEditorView(
                                     },
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(26.dp)
                                 )
-                                Spacer(Modifier.width(10.dp))
+                                Spacer(Modifier.width(12.dp))
 
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable {
-                                            try {
-                                                val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                    setDataAndType(Uri.parse(att.uriString), "*/*")
-                                                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                }
-                                                context.startActivity(intent)
-                                            } catch (_: Exception) {
-                                                Toast.makeText(context, "No app available to preview this file", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = att.displayName,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                     att.contactPhone?.let {
-                                        Text("📞 Phone: $it", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                                    }
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
-                                    ) {
-                                        Text("Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                                        Text("Modified: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                        Text(
+                                            text = "Phone: $it",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
                                     }
                                 }
 
                                 if (att.type == AttachmentType.CONTACT) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        RadioButton(
-                                            selected = !att.isContactPending,
-                                            onClick = {
-                                                viewModel.updateAttachment(att, att.displayName, att.notes, att.contactPhone, !att.isContactPending)
-                                            }
-                                        )
-                                        Text(if (att.isContactPending) "Pending" else "Done", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-
-                                IconButton(onClick = { isAttachmentNoteExpanded = !isAttachmentNoteExpanded }) {
-                                    Icon(
-                                        Icons.Default.EditNote,
-                                        contentDescription = "Expand/Edit Note",
-                                        tint = if (!att.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    FilterChip(
+                                        selected = !att.isContactPending,
+                                        onClick = {
+                                            viewModel.updateAttachment(att, att.displayName, att.notes, att.contactPhone, !att.isContactPending)
+                                        },
+                                        label = { Text(if (att.isContactPending) "Pending" else "Done") }
                                     )
                                 }
+                            }
 
-                                IconButton(onClick = { viewModel.moveAttachment(att, true) }) {
-                                    Icon(Icons.Default.ArrowUpward, contentDescription = "Up")
-                                }
-                                IconButton(onClick = { viewModel.moveAttachment(att, false) }) {
-                                    Icon(Icons.Default.ArrowDownward, contentDescription = "Down")
-                                }
-                                IconButton(onClick = { itemPendingDeleteAttachment = att }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                            // TIER 2: Full-width Timestamps & Action Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.createdTimestamp))}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { isAttachmentNoteExpanded = !isAttachmentNoteExpanded }) {
+                                        Icon(
+                                            Icons.Default.EditNote,
+                                            contentDescription = "Note",
+                                            tint = if (!att.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveAttachment(att, true) }) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveAttachment(att, false) }) {
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { itemPendingDeleteAttachment = att }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                    }
                                 }
                             }
 
                             AnimatedVisibility(visible = isAttachmentNoteExpanded) {
-                                Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    OutlinedTextField(
-                                        value = attNoteText,
-                                        onValueChange = {
-                                            attNoteText = it
-                                            viewModel.updateAttachment(att, att.displayName, it, att.contactPhone, att.isContactPending)
-                                        },
-                                        label = { Text("Attachment Note / Details") },
-                                        placeholder = { Text("Write notes, description or references for this attachment...") },
-                                        minLines = 2,
-                                        maxLines = 6,
-                                        singleLine = false,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
+                                OutlinedTextField(
+                                    value = attNoteText,
+                                    onValueChange = {
+                                        attNoteText = it
+                                        viewModel.updateAttachment(att, att.displayName, it, att.contactPhone, att.isContactPending)
+                                    },
+                                    label = { Text("Attachment Note / Details") },
+                                    minLines = 2,
+                                    maxLines = 6,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
                     }
