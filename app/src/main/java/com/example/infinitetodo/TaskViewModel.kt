@@ -208,10 +208,11 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name}\n" else ""
             val fullDescription = "$auditNote$tagsSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
 
-            val currentEventAlive = task.calendarEventId != null && CalendarHelper.eventExists(getApplication(), task.calendarEventId)
+            var updatedSuccessfully = false
+            val currentEventAlive = task.calendarEventId != null && CalendarHelper.eventExists(getApplication(), task.calendarEventId!!)
 
             if (currentEventAlive) {
-                CalendarHelper.updateEvent(
+                updatedSuccessfully = CalendarHelper.updateEvent(
                     context = getApplication(),
                     target = target,
                     eventId = task.calendarEventId!!,
@@ -219,7 +220,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                     notes = fullDescription,
                     createdTimestampMs = createdEpochMs
                 )
-            } else {
+            }
+
+            // If the event didn't exist, or was deleted from the device calendar, perform fresh insert
+            if (!updatedSuccessfully) {
                 val newEventId = CalendarHelper.insertEvent(
                     context = getApplication(),
                     target = target,
@@ -437,6 +441,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -504,6 +509,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
