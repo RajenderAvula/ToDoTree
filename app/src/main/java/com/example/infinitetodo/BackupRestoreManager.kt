@@ -35,7 +35,11 @@ class BackupRestoreManager(private val context: Context) {
                     put("dueTimestamp", t.dueTimestamp ?: JSONObject.NULL)
                     put("repeatRule", t.repeatRule.name)
                     put("repeatIntervalDays", t.repeatIntervalDays)
-                    put("repeatTimestampMs", t.repeatTimestampMs ?: JSONObject.NULL)
+                    put("repeatIntervalHours", t.repeatIntervalHours)
+                    put("repeatIntervalMinutes", t.repeatIntervalMinutes)
+                    put("repeatStartDate", t.repeatStartDate ?: JSONObject.NULL)
+                    put("repeatStartTimeMs", t.repeatStartTimeMs ?: JSONObject.NULL)
+                    put("repeatEndTimeMs", t.repeatEndTimeMs ?: JSONObject.NULL)
                     put("linkedTaskIds", t.linkedTaskIds ?: JSONObject.NULL)
                     put("orderIndex", t.orderIndex)
                     put("createdTimestamp", t.createdTimestamp)
@@ -187,8 +191,12 @@ class BackupRestoreManager(private val context: Context) {
                     reminderTimestamp = if (obj.isNull("reminderTimestamp")) null else obj.getLong("reminderTimestamp"),
                     dueTimestamp = if (obj.isNull("dueTimestamp")) null else obj.getLong("dueTimestamp"),
                     repeatRule = repeatVal,
-                    repeatIntervalDays = obj.optInt("repeatIntervalDays", 1),
-                    repeatTimestampMs = if (obj.isNull("repeatTimestampMs")) null else obj.getLong("repeatTimestampMs"),
+                    repeatIntervalDays = obj.optInt("repeatIntervalDays", 0),
+                    repeatIntervalHours = obj.optInt("repeatIntervalHours", 0),
+                    repeatIntervalMinutes = obj.optInt("repeatIntervalMinutes", 0),
+                    repeatStartDate = if (obj.isNull("repeatStartDate")) null else obj.getLong("repeatStartDate"),
+                    repeatStartTimeMs = if (obj.isNull("repeatStartTimeMs")) null else obj.getLong("repeatStartTimeMs"),
+                    repeatEndTimeMs = if (obj.isNull("repeatEndTimeMs")) null else obj.getLong("repeatEndTimeMs"),
                     calendarEventId = null,
                     linkedTaskIds = if (obj.isNull("linkedTaskIds")) null else obj.getString("linkedTaskIds"),
                     orderIndex = obj.optInt("orderIndex", 0),
