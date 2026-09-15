@@ -321,7 +321,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteTask(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Delete associated Google Calendar event
             task.calendarEventId?.let { eventId ->
                 try {
                     CalendarHelper.deleteEvent(getApplication(), eventId)
@@ -436,7 +435,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -504,7 +502,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
