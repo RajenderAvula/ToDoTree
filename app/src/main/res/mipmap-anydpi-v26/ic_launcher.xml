@@ -1,5 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@color/white" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
-</adaptive-icon>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Forest Green Background Circle -->
+    <path
+        android:fillColor="#1B5E20"
+        android:pathData="M54,4 C81.6,4 104,26.4 104,54 C104,81.6 81.6,104 54,104 C26.4,104 4,81.6 4,54 C4,26.4 26.4,4 54,4 Z"/>
+    <!-- Tree Trunk -->
+    <path
+        android:fillColor="#8D6E63"
+        android:pathData="M50,68h8v20h-8z"/>
+    <!-- Foliage Layers (Tree) -->
+    <path
+        android:fillColor="#81C784"
+        android:pathData="M54,20 L30,48 h16 L34,68 h40 L62,48 h16 Z"/>
+    <!-- Checkmark Badge -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M49,53 l-5,-5 l-3,3 l8,8 l16,-16 l-3,-3 z"/>
+</vector>
