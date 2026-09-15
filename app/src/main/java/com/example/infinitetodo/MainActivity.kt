@@ -217,11 +217,13 @@ fun MainAppScaffold(
 
         // FULL SCREEN TASK WORKSPACE MODAL
         activeFullScreenTask?.let { taskToEdit ->
-            FullScreenTaskWorkspaceDialog(
-                initialTaskId = taskToEdit.id,
-                viewModel = viewModel,
-                onDismiss = { activeFullScreenTask = null }
-            )
+            key(taskToEdit.id) {
+                FullScreenTaskWorkspaceDialog(
+                    initialTaskId = taskToEdit.id,
+                    viewModel = viewModel,
+                    onDismiss = { activeFullScreenTask = null }
+                )
+            }
         }
 
         taskForTargetMove?.let { movingTask ->
@@ -255,6 +257,36 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
+// CONFIRMATION DIALOG FOR ANY DELETE ACTION
+// -----------------------------------------------------------------------------------------
+@Composable
+fun DeleteConfirmationDialog(
+    title: String,
+    message: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontWeight = FontWeight.Bold) },
+        text = { Text(message) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Delete")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+// -----------------------------------------------------------------------------------------
 // PROMINENT URGENT & STANDARD PRIORITY BADGES
 // -----------------------------------------------------------------------------------------
 @Composable
@@ -284,6 +316,9 @@ fun PriorityBadge(priority: TaskPriority) {
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// HIGH CONTRAST SEARCH TEXT HIGHLIGHTING
+// -----------------------------------------------------------------------------------------
 @Composable
 fun HighlightedText(
     text: String,
@@ -311,8 +346,8 @@ fun HighlightedText(
                 append(text.substring(startIndex, index))
                 pushStyle(
                     SpanStyle(
-                        background = Color(0xFFFFEB3B),
-                        color = Color.Black,
+                        background = Color(0xFFFFD54F), // High-visibility Amber
+                        color = Color(0xFF212121),     // Deep Black for strong contrast
                         fontWeight = FontWeight.Bold
                     )
                 )
@@ -484,6 +519,9 @@ fun TaskFilterHeaderBar(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 1. HOME DASHBOARD TAB (WITH PATH HIERARCHY ON TOP OF EVERY TASK)
+// -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
     viewModel: TaskViewModel,
@@ -562,6 +600,12 @@ fun HomeDashboardTab(
                 val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
                 val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
 
+                var hierarchyPath by remember { mutableStateOf("") }
+                val scope = rememberCoroutineScope()
+                LaunchedEffect(task.id) {
+                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
+                }
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -569,6 +613,17 @@ fun HomeDashboardTab(
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
+                        // PATH HIERARCHY SHOWN ON TOP OF EVERY TASK IN HOME TAB
+                        if (hierarchyPath.isNotBlank()) {
+                            Text(
+                                text = "Path: $hierarchyPath",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                        }
+
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
                             PriorityBadge(task.priority)
                             if (subtaskCount > 0) {
@@ -658,6 +713,9 @@ fun HomeDashboardTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 2. TASKS TREE TAB (OPENINFULL ICON RELIABLY LAUNCHES FULLSCREEN)
+// -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
     viewModel: TaskViewModel,
@@ -1111,7 +1169,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (CARD BODY & OPENINFULL ICON BOTH GUARANTEED TO OPEN WORKSPACE)
+// REUSABLE TASK TREE ROW (CARD BODY & OPENINFULL ICON BOTH DIRECTLY OPEN WORKSPACE)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -1139,6 +1197,8 @@ fun TaskNodeView(
 
     var layerLevel by remember { mutableStateOf(1) }
     var layersBelow by remember { mutableStateOf(0) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(task.id) {
@@ -1149,6 +1209,18 @@ fun TaskNodeView(
     }
 
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
+
+    if (showDeleteConfirm) {
+        DeleteConfirmationDialog(
+            title = "Delete Task?",
+            message = "Are you sure you want to delete '${task.title.ifBlank { "this task" }}'? All subtasks, checklists, attachments and its calendar event will also be removed.",
+            onConfirm = {
+                viewModel.deleteTask(task)
+                showDeleteConfirm = false
+            },
+            onDismiss = { showDeleteConfirm = false }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -1169,7 +1241,6 @@ fun TaskNodeView(
             elevation = CardDefaults.cardElevation(defaultElevation = if (isUndocked) 8.dp else 2.dp)
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
-                // ROW 1: PRIORITY BADGE + LAYER PILL (UNCONSTRAINED)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
                     PriorityBadge(task.priority)
                     Spacer(Modifier.width(8.dp))
@@ -1193,7 +1264,6 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 2: Drag Handle, Checkbox, Title Text (DIRECTLY OPENS FULL SCREEN ON CLICK)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -1293,7 +1363,6 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 3: Timestamps
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1304,7 +1373,6 @@ fun TaskNodeView(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // ROW 4: Contacts Chips (Always Visible Horizontally)
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -1335,7 +1403,6 @@ fun TaskNodeView(
                     }
                 }
 
-                // ROW 5: Action Toolbar (Dedicated button guaranteed to open full screen)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1370,7 +1437,7 @@ fun TaskNodeView(
                         IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyToTarget(task) }) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Copy Target", modifier = Modifier.size(17.dp))
                         }
-                        // DEDICATED FULL SCREEN LAUNCHER BUTTON BESIDE DELETE
+                        // DEDICATED FULL SCREEN BUTTON
                         IconButton(
                             modifier = Modifier.size(36.dp),
                             onClick = { onOpenFullScreen(task) }
@@ -1382,7 +1449,7 @@ fun TaskNodeView(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
-                        IconButton(modifier = Modifier.size(30.dp), onClick = { viewModel.deleteTask(task) }) {
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { showDeleteConfirm = true }) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(17.dp))
                         }
                     }
@@ -1505,7 +1572,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (HORIZONTAL ATTACHMENTS & UNCONSTRAINED CHECKLIST SAVE)
+// SINGLE TASK EDITOR VIEW (EXPANDED REPEAT CONTROLS & DELETE CONFIRMATION)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1516,7 +1583,8 @@ fun SingleTaskEditorView(
 ) {
     val context = LocalContext.current
     val audioHelper = remember { AudioRecorderHelper(context) }
-    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
     val scope = rememberCoroutineScope()
 
     var title by remember(task.id) { mutableStateOf(task.title) }
@@ -1525,9 +1593,15 @@ fun SingleTaskEditorView(
     var priority by remember(task.id) { mutableStateOf(task.priority) }
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
+
+    // Advanced Recurrence Parameters
     var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }
-    var repeatIntervalDays by remember(task.id) { mutableStateOf(task.repeatIntervalDays) }
-    var repeatTimestampMs by remember(task.id) { mutableStateOf<Long?>(task.repeatTimestampMs) }
+    var repeatIntervalDays by remember(task.id) { mutableIntStateOf(task.repeatIntervalDays) }
+    var repeatIntervalHours by remember(task.id) { mutableIntStateOf(task.repeatIntervalHours) }
+    var repeatIntervalMinutes by remember(task.id) { mutableIntStateOf(task.repeatIntervalMinutes) }
+    var repeatStartDate by remember(task.id) { mutableStateOf(task.repeatStartDate) }
+    var repeatStartTimeMs by remember(task.id) { mutableStateOf(task.repeatStartTimeMs) }
+    var repeatEndTimeMs by remember(task.id) { mutableStateOf(task.repeatEndTimeMs) }
 
     var isRecordingAudio by remember { mutableStateOf(false) }
     var recordedAudioPath by remember { mutableStateOf<String?>(null) }
@@ -1535,9 +1609,37 @@ fun SingleTaskEditorView(
     var manualPhone by remember { mutableStateOf("") }
     var manualContactName by remember { mutableStateOf("") }
 
+    // Confirmation dialog states
+    var itemPendingDeleteChecklist by remember { mutableStateOf<ChecklistItem?>(null) }
+    var itemPendingDeleteAttachment by remember { mutableStateOf<RichAttachment?>(null) }
+
     val liveChecklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+
+    if (itemPendingDeleteChecklist != null) {
+        DeleteConfirmationDialog(
+            title = "Delete Checklist Item?",
+            message = "Are you sure you want to delete '${itemPendingDeleteChecklist?.text}'?",
+            onConfirm = {
+                itemPendingDeleteChecklist?.let { viewModel.deleteChecklistItem(it) }
+                itemPendingDeleteChecklist = null
+            },
+            onDismiss = { itemPendingDeleteChecklist = null }
+        )
+    }
+
+    if (itemPendingDeleteAttachment != null) {
+        DeleteConfirmationDialog(
+            title = "Delete Attachment?",
+            message = "Are you sure you want to remove '${itemPendingDeleteAttachment?.displayName}'?",
+            onConfirm = {
+                itemPendingDeleteAttachment?.let { viewModel.deleteAttachment(it) }
+                itemPendingDeleteAttachment = null
+            },
+            onDismiss = { itemPendingDeleteAttachment = null }
+        )
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -1561,7 +1663,7 @@ fun SingleTaskEditorView(
                 task.id,
                 AttachmentType.VIDEO,
                 tempVideoUri.toString(),
-                "Video Recording ${dateFormat.format(Date())}"
+                "Video Recording ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())}"
             )
         }
     }
@@ -1647,7 +1749,11 @@ fun SingleTaskEditorView(
                         dueEpochMs = dueMs,
                         repeatRule = repeatRule,
                         repeatIntervalDays = repeatIntervalDays,
-                        repeatTimestampMs = repeatTimestampMs,
+                        repeatIntervalHours = repeatIntervalHours,
+                        repeatIntervalMinutes = repeatIntervalMinutes,
+                        repeatStartDate = repeatStartDate,
+                        repeatStartTimeMs = repeatStartTimeMs,
+                        repeatEndTimeMs = repeatEndTimeMs,
                         linkedTaskIds = task.linkedTaskIds
                     )
                     Toast.makeText(context, "Saved changes ✓", Toast.LENGTH_SHORT).show()
@@ -1684,7 +1790,6 @@ fun SingleTaskEditorView(
             Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
         }
 
-        // PROMINENT PRIORITY SELECTION (URGENT IS FULLY VISIBLE & STYLED)
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Priority Level:", fontWeight = FontWeight.SemiBold)
             Row(
@@ -1728,8 +1833,11 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
+        // ---------------------------------------------------------------------------------
+        // EXPANDED RECURRENCE SETTINGS UI
+        // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Schedule, Due Dates & Recurrence", fontWeight = FontWeight.Bold)
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1764,52 +1872,142 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                HorizontalDivider()
+
+                Text("Repeat Options:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+
+                // Presets: Daily Weekly Fortnightly Monthly Six Monthly Yearly Custom
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     RecurrenceRule.values().forEach { rule ->
+                        val ruleLabel = when (rule) {
+                            RecurrenceRule.NONE -> "None"
+                            RecurrenceRule.DAILY -> "Daily"
+                            RecurrenceRule.WEEKLY -> "Weekly"
+                            RecurrenceRule.FORTNIGHTLY -> "Fortnightly"
+                            RecurrenceRule.MONTHLY -> "Monthly"
+                            RecurrenceRule.SIX_MONTHLY -> "Six Monthly"
+                            RecurrenceRule.YEARLY -> "Yearly"
+                            RecurrenceRule.CUSTOM -> "Custom"
+                        }
                         FilterChip(
                             selected = repeatRule == rule,
                             onClick = { repeatRule = rule },
-                            label = { Text(rule.name) }
+                            label = { Text(ruleLabel) }
                         )
                     }
                 }
 
-                if (repeatRule != RecurrenceRule.NONE) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // If non-custom preset is chosen (Hourly time config)
+                if (repeatRule != RecurrenceRule.NONE && repeatRule != RecurrenceRule.CUSTOM) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Repeat Time:", style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(
+                            value = String.format("%02d", repeatIntervalHours),
+                            onValueChange = { repeatIntervalHours = (it.toIntOrNull() ?: 0).coerceIn(0, 23) },
+                            modifier = Modifier.width(64.dp),
+                            singleLine = true
+                        )
+                        Text("hours")
+                        OutlinedTextField(
+                            value = String.format("%02d", repeatIntervalMinutes),
+                            onValueChange = { repeatIntervalMinutes = (it.toIntOrNull() ?: 0).coerceIn(0, 59) },
+                            modifier = Modifier.width(64.dp),
+                            singleLine = true
+                        )
+                        Text("min")
+                    }
+                }
+
+                // If Custom is chosen: Every [X] days [Y] hours [Z] min, Start date, Start time, End time
+                if (repeatRule == RecurrenceRule.CUSTOM) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Custom Repetition Interval:", fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Every:")
+                            OutlinedTextField(
+                                value = String.format("%02d", repeatIntervalDays),
+                                onValueChange = { repeatIntervalDays = (it.toIntOrNull() ?: 0).coerceAtLeast(0) },
+                                modifier = Modifier.width(58.dp),
+                                singleLine = true
+                            )
+                            Text("days")
+                            OutlinedTextField(
+                                value = String.format("%02d", repeatIntervalHours),
+                                onValueChange = { repeatIntervalHours = (it.toIntOrNull() ?: 0).coerceIn(0, 23) },
+                                modifier = Modifier.width(58.dp),
+                                singleLine = true
+                            )
+                            Text("hrs")
+                            OutlinedTextField(
+                                value = String.format("%02d", repeatIntervalMinutes),
+                                onValueChange = { repeatIntervalMinutes = (it.toIntOrNull() ?: 0).coerceIn(0, 59) },
+                                modifier = Modifier.width(58.dp),
+                                singleLine = true
+                            )
+                            Text("min")
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Start Time Picker
+                            OutlinedButton(
+                                onClick = {
+                                    val c = Calendar.getInstance().apply { repeatStartTimeMs?.let { timeInMillis = it } }
+                                    TimePickerDialog(context, { _, h, min ->
+                                        c.set(Calendar.HOUR_OF_DAY, h)
+                                        c.set(Calendar.MINUTE, min)
+                                        repeatStartTimeMs = c.timeInMillis
+                                    }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), false).show()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(repeatStartTimeMs?.let { "Start: ${timeFormat.format(Date(it))}" } ?: "Start time [08:00 AM]")
+                            }
+
+                            // End Time Picker
+                            OutlinedButton(
+                                onClick = {
+                                    val c = Calendar.getInstance().apply { repeatEndTimeMs?.let { timeInMillis = it } }
+                                    TimePickerDialog(context, { _, h, min ->
+                                        c.set(Calendar.HOUR_OF_DAY, h)
+                                        c.set(Calendar.MINUTE, min)
+                                        repeatEndTimeMs = c.timeInMillis
+                                    }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), false).show()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(repeatEndTimeMs?.let { "End: ${timeFormat.format(Date(it))}" } ?: "End time [08:00 PM]")
+                            }
+                        }
+
+                        // Start Date Picker
                         OutlinedButton(
                             onClick = {
-                                val cal = Calendar.getInstance().apply {
-                                    repeatTimestampMs?.let { timeInMillis = it }
-                                }
+                                val c = Calendar.getInstance().apply { repeatStartDate?.let { timeInMillis = it } }
                                 DatePickerDialog(context, { _, y, m, d ->
-                                    TimePickerDialog(context, { _, h, min ->
-                                        cal.set(y, m, d, h, min)
-                                        repeatTimestampMs = cal.timeInMillis
-                                    }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), false).show()
-                                }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                                    c.set(y, m, d, 0, 0, 0)
+                                    repeatStartDate = c.timeInMillis
+                                }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show()
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = repeatTimestampMs?.let {
-                                    "Repeat Anchor: ${dateFormat.format(Date(it))}"
-                                } ?: "Pick Repeat Date (Calendar) & Time (Clock)"
-                            )
-                        }
-
-                        if (repeatRule == RecurrenceRule.CUSTOM) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Interval: Every ", style = MaterialTheme.typography.bodyMedium)
-                                OutlinedTextField(
-                                    value = repeatIntervalDays.toString(),
-                                    onValueChange = { repeatIntervalDays = it.toIntOrNull() ?: 1 },
-                                    modifier = Modifier.width(60.dp),
-                                    singleLine = true
-                                )
-                                Text(" days", style = MaterialTheme.typography.bodyMedium)
-                            }
+                            Text(repeatStartDate?.let { "Start date: [${dateFormat.format(Date(it))}]" } ?: "Start date: [15 Sep 2026]")
                         }
                     }
                 }
@@ -1893,7 +2091,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // CHECKLISTS WITH ACCESSIBLE SAVE ACTION
+        // CHECKLISTS WITH UNCLIPPED SAVE ACTIONS & EXPANDABLE NOTES
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
@@ -1941,12 +2139,12 @@ fun SingleTaskEditorView(
                                 IconButton(onClick = { viewModel.moveChecklistItem(item, false) }) {
                                     Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
                                 }
-                                IconButton(onClick = { viewModel.deleteChecklistItem(item) }) {
+                                IconButton(onClick = { itemPendingDeleteChecklist = item }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                 }
                             }
 
-                            // DEDICATED FULL-WIDTH EDITING BLOCK
+                            // DEDICATED UNCLIPPED EDITING CONTAINER
                             AnimatedVisibility(visible = isRenamingTitle) {
                                 Column(
                                     modifier = Modifier
@@ -1985,7 +2183,6 @@ fun SingleTaskEditorView(
                                 }
                             }
 
-                            // DEDICATED EXPANDABLE NOTE TEXT BOX
                             AnimatedVisibility(visible = isNoteExpanded) {
                                 Column(modifier = Modifier.padding(start = 36.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     OutlinedTextField(
@@ -2005,7 +2202,7 @@ fun SingleTaskEditorView(
                             }
 
                             Text(
-                                "Created: ${dateFormat.format(Date(item.createdTimestamp))} | Modified: ${dateFormat.format(Date(item.lastModifiedTimestamp))}",
+                                "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.createdTimestamp))} | Modified: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.lastModifiedTimestamp))}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.padding(start = 36.dp)
@@ -2040,7 +2237,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // ATTACHMENTS & CONTACTS (SPREAD HORIZONTALLY ACROSS UI LENGTH)
+        // ATTACHMENTS & CONTACTS (WITH CONFIRMATION BEFORE DELETION)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2068,7 +2265,7 @@ fun SingleTaskEditorView(
                             recordedAudioPath = audioHelper.stopRecording()
                             isRecordingAudio = false
                             recordedAudioPath?.let {
-                                viewModel.addAttachment(task.id, AttachmentType.AUDIO, it, "Voice Memo ${dateFormat.format(Date())}")
+                                viewModel.addAttachment(task.id, AttachmentType.AUDIO, it, "Voice Memo ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())}")
                             }
                         } else {
                             audioHelper.startRecording()
@@ -2178,8 +2375,8 @@ fun SingleTaskEditorView(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
-                                        Text("Created: ${dateFormat.format(Date(att.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                                        Text("Modified: ${dateFormat.format(Date(att.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                        Text("Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                        Text("Modified: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                     }
                                 }
 
@@ -2209,7 +2406,7 @@ fun SingleTaskEditorView(
                                 IconButton(onClick = { viewModel.moveAttachment(att, false) }) {
                                     Icon(Icons.Default.ArrowDownward, contentDescription = "Down")
                                 }
-                                IconButton(onClick = { viewModel.deleteAttachment(att) }) {
+                                IconButton(onClick = { itemPendingDeleteAttachment = att }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                                 }
                             }
