@@ -218,7 +218,7 @@ fun MainAppScaffold(
         activeFullScreenTask?.let { taskToEdit ->
             key(taskToEdit.id) {
                 FullScreenTaskWorkspaceDialog(
-                    initialTaskId = taskToEdit.id,
+                    initialTask = taskToEdit,
                     viewModel = viewModel,
                     onDismiss = { activeFullScreenTask = null }
                 )
@@ -1151,6 +1151,9 @@ fun SettingsManagerTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// REUSABLE TASK TREE ROW
+// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
     task: TaskItem,
@@ -1454,26 +1457,36 @@ fun TaskNodeView(
 }
 
 // -----------------------------------------------------------------------------------------
-// FULL SCREEN WORKSPACE DIALOG (PRIMARY & REFERENCED CROSS TABS)
+// FULL SCREEN WORKSPACE DIALOG (REACTIVE STATE, NEVER DISMISSES ON EMPTY FRAME)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullScreenTaskWorkspaceDialog(
-    initialTaskId: Long,
+    initialTask: TaskItem,
     viewModel: TaskViewModel,
     onDismiss: () -> Unit
 ) {
-    var primaryTaskId by remember { mutableLongStateOf(initialTaskId) }
-    var referencedTaskId by remember { mutableStateOf<Long?>(null) }
+    var primaryTask by remember(initialTask.id) { mutableStateOf(initialTask) }
+    var referencedTask by remember { mutableStateOf<TaskItem?>(null) }
     var selectedWorkspaceTab by remember { mutableIntStateOf(0) }
 
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
-    val primaryTask = remember(allTasks, primaryTaskId) { allTasks.find { it.id == primaryTaskId } }
-    val referencedTask = remember(allTasks, referencedTaskId) { allTasks.find { it.id == referencedTaskId } }
 
-    if (primaryTask == null) {
-        LaunchedEffect(Unit) { onDismiss() }
-        return
+    LaunchedEffect(allTasks, primaryTask.id) {
+        val updated = allTasks.find { it.id == primaryTask.id }
+        if (updated != null) {
+            primaryTask = updated
+        }
+    }
+
+    LaunchedEffect(allTasks, referencedTask?.id) {
+        val refId = referencedTask?.id
+        if (refId != null) {
+            val updatedRef = allTasks.find { it.id == refId }
+            if (updatedRef != null) {
+                referencedTask = updatedRef
+            }
+        }
     }
 
     Dialog(
@@ -1508,7 +1521,7 @@ fun FullScreenTaskWorkspaceDialog(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(14.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text(referencedTask.title.ifBlank { "Referenced" }, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(referencedTask?.title?.ifBlank { "Referenced" } ?: "Referenced", maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
                             )
@@ -1528,18 +1541,18 @@ fun FullScreenTaskWorkspaceDialog(
                             task = primaryTask,
                             viewModel = viewModel,
                             onOpenReferencedCrossTab = { target ->
-                                referencedTaskId = target.id
+                                referencedTask = target
                                 selectedWorkspaceTab = 1
                             }
                         )
                     }
                 } else if (referencedTask != null) {
-                    key(referencedTask.id) {
+                    key(referencedTask!!.id) {
                         SingleTaskEditorView(
-                            task = referencedTask,
+                            task = referencedTask!!,
                             viewModel = viewModel,
                             onOpenReferencedCrossTab = { nextTarget ->
-                                referencedTaskId = nextTarget.id
+                                referencedTask = nextTarget
                             }
                         )
                     }
@@ -1550,7 +1563,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (EXPANDED REPEAT CONTROLS & DELETE CONFIRMATION)
+// SINGLE TASK EDITOR VIEW
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1981,7 +1994,6 @@ fun SingleTaskEditorView(
             }
         }
 
-        // BIDIRECTIONAL CROSS-TASK LINKING
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Cross-Task Linking (Bidirectional)", fontWeight = FontWeight.Bold)
@@ -2058,7 +2070,6 @@ fun SingleTaskEditorView(
             }
         }
 
-        // CHECKLISTS WITH UNCLIPPED SAVE ACTIONS & EXPANDABLE NOTES
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
@@ -2203,7 +2214,6 @@ fun SingleTaskEditorView(
             }
         }
 
-        // ATTACHMENTS & CONTACTS (SPREAD HORIZONTALLY ACROSS UI LENGTH)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2404,9 +2414,6 @@ fun SingleTaskEditorView(
     }
 }
 
-// -----------------------------------------------------------------------------------------
-// DESTINATION PICKER DIALOG (MOVE / COPY)
-// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskDestinationDialog(
     title: String,
