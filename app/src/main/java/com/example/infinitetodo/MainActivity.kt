@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -45,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -1457,7 +1459,7 @@ fun TaskNodeView(
 }
 
 // -----------------------------------------------------------------------------------------
-// FULL SCREEN WORKSPACE DIALOG (REACTIVE STATE, NEVER DISMISSES ON EMPTY FRAME)
+// FULL SCREEN WORKSPACE DIALOG
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1563,7 +1565,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW
+// SINGLE TASK EDITOR VIEW (UNIFIED REPEAT ANCHORS & HORIZONTAL CARDS)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1585,13 +1587,14 @@ fun SingleTaskEditorView(
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
 
+    // Unified Repeat States
     var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }
-    var repeatIntervalDays by remember(task.id) { mutableIntStateOf(task.repeatIntervalDays) }
-    var repeatIntervalHours by remember(task.id) { mutableIntStateOf(task.repeatIntervalHours) }
-    var repeatIntervalMinutes by remember(task.id) { mutableIntStateOf(task.repeatIntervalMinutes) }
-    var repeatStartDate by remember(task.id) { mutableStateOf(task.repeatStartDate) }
-    var repeatStartTimeMs by remember(task.id) { mutableStateOf(task.repeatStartTimeMs) }
-    var repeatEndTimeMs by remember(task.id) { mutableStateOf(task.repeatEndTimeMs) }
+    var repeatCustomDaysText by remember(task.id) { mutableStateOf(task.repeatIntervalDays.toString()) }
+    var repeatCustomHoursText by remember(task.id) { mutableStateOf(task.repeatIntervalHours.toString()) }
+    var repeatCustomMinutesText by remember(task.id) { mutableStateOf(task.repeatIntervalMinutes.toString()) }
+    var repeatStartDate by remember(task.id) { mutableStateOf(task.repeatStartDate ?: System.currentTimeMillis()) }
+    var repeatStartTimeMs by remember(task.id) { mutableStateOf(task.repeatStartTimeMs ?: System.currentTimeMillis()) }
+    var repeatEndTimeMs by remember(task.id) { mutableStateOf(task.repeatEndTimeMs ?: (System.currentTimeMillis() + 43200000L)) }
 
     var isRecordingAudio by remember { mutableStateOf(false) }
     var recordedAudioPath by remember { mutableStateOf<String?>(null) }
@@ -1728,6 +1731,10 @@ fun SingleTaskEditorView(
 
             Button(
                 onClick = {
+                    val days = repeatCustomDaysText.toIntOrNull() ?: 0
+                    val hours = repeatCustomHoursText.toIntOrNull() ?: 0
+                    val minutes = repeatCustomMinutesText.toIntOrNull() ?: 0
+
                     viewModel.saveTask(
                         task = task,
                         title = title,
@@ -1737,9 +1744,9 @@ fun SingleTaskEditorView(
                         reminderEpochMs = reminderMs,
                         dueEpochMs = dueMs,
                         repeatRule = repeatRule,
-                        repeatIntervalDays = repeatIntervalDays,
-                        repeatIntervalHours = repeatIntervalHours,
-                        repeatIntervalMinutes = repeatIntervalMinutes,
+                        repeatIntervalDays = days,
+                        repeatIntervalHours = hours,
+                        repeatIntervalMinutes = minutes,
                         repeatStartDate = repeatStartDate,
                         repeatStartTimeMs = repeatStartTimeMs,
                         repeatEndTimeMs = repeatEndTimeMs,
@@ -1822,9 +1829,12 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
+        // ---------------------------------------------------------------------------------
+        // REPEAT & SCHEDULE CONFIGURATION (START TIME, END TIME, START DATE FOR ALL PRESETS)
+        // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Schedule, Due Dates & Recurrence", fontWeight = FontWeight.Bold)
+                Text("Schedule & Due Dates", fontWeight = FontWeight.Bold)
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
@@ -1860,8 +1870,9 @@ fun SingleTaskEditorView(
 
                 HorizontalDivider()
 
-                Text("Repeat Options:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Text("Repeat Configuration", fontWeight = FontWeight.Bold)
 
+                // Presets Row
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1885,31 +1896,8 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                if (repeatRule != RecurrenceRule.NONE && repeatRule != RecurrenceRule.CUSTOM) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Repeat Time:", style = MaterialTheme.typography.bodyMedium)
-                        OutlinedTextField(
-                            value = String.format("%02d", repeatIntervalHours),
-                            onValueChange = { repeatIntervalHours = (it.toIntOrNull() ?: 0).coerceIn(0, 23) },
-                            modifier = Modifier.width(64.dp),
-                            singleLine = true
-                        )
-                        Text("hours")
-                        OutlinedTextField(
-                            value = String.format("%02d", repeatIntervalMinutes),
-                            onValueChange = { repeatIntervalMinutes = (it.toIntOrNull() ?: 0).coerceIn(0, 59) },
-                            modifier = Modifier.width(64.dp),
-                            singleLine = true
-                        )
-                        Text("min")
-                    }
-                }
-
-                if (repeatRule == RecurrenceRule.CUSTOM) {
+                // If any repetition is active, show Start Time, End Time, and Start Date
+                if (repeatRule != RecurrenceRule.NONE) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1917,36 +1905,48 @@ fun SingleTaskEditorView(
                             .padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Custom Repetition Interval:", fontWeight = FontWeight.SemiBold)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("Every:")
-                            OutlinedTextField(
-                                value = String.format("%02d", repeatIntervalDays),
-                                onValueChange = { repeatIntervalDays = (it.toIntOrNull() ?: 0).coerceAtLeast(0) },
-                                modifier = Modifier.width(58.dp),
-                                singleLine = true
-                            )
-                            Text("days")
-                            OutlinedTextField(
-                                value = String.format("%02d", repeatIntervalHours),
-                                onValueChange = { repeatIntervalHours = (it.toIntOrNull() ?: 0).coerceIn(0, 23) },
-                                modifier = Modifier.width(58.dp),
-                                singleLine = true
-                            )
-                            Text("hrs")
-                            OutlinedTextField(
-                                value = String.format("%02d", repeatIntervalMinutes),
-                                onValueChange = { repeatIntervalMinutes = (it.toIntOrNull() ?: 0).coerceIn(0, 59) },
-                                modifier = Modifier.width(58.dp),
-                                singleLine = true
-                            )
-                            Text("min")
+                        // Custom Intervals Entry with standard String Editing (No Overwriting)
+                        if (repeatRule == RecurrenceRule.CUSTOM) {
+                            Text("Every Interval:", fontWeight = FontWeight.SemiBold)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("Days:")
+                                OutlinedTextField(
+                                    value = repeatCustomDaysText,
+                                    onValueChange = { input ->
+                                        repeatCustomDaysText = input.filter { it.isDigit() }
+                                    },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.width(64.dp),
+                                    singleLine = true
+                                )
+                                Text("Hrs:")
+                                OutlinedTextField(
+                                    value = repeatCustomHoursText,
+                                    onValueChange = { input ->
+                                        repeatCustomHoursText = input.filter { it.isDigit() }
+                                    },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.width(64.dp),
+                                    singleLine = true
+                                )
+                                Text("Min:")
+                                OutlinedTextField(
+                                    value = repeatCustomMinutesText,
+                                    onValueChange = { input ->
+                                        repeatCustomMinutesText = input.filter { it.isDigit() }
+                                    },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.width(64.dp),
+                                    singleLine = true
+                                )
+                            }
                         }
 
+                        // Start Time & End Time
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(
                                 onClick = {
@@ -1959,7 +1959,7 @@ fun SingleTaskEditorView(
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text(repeatStartTimeMs?.let { "Start: ${timeFormat.format(Date(it))}" } ?: "Start time [08:00 AM]")
+                                Text(repeatStartTimeMs?.let { "Start: ${timeFormat.format(Date(it))}" } ?: "Start time")
                             }
 
                             OutlinedButton(
@@ -1973,10 +1973,11 @@ fun SingleTaskEditorView(
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text(repeatEndTimeMs?.let { "End: ${timeFormat.format(Date(it))}" } ?: "End time [08:00 PM]")
+                                Text(repeatEndTimeMs?.let { "End: ${timeFormat.format(Date(it))}" } ?: "End time")
                             }
                         }
 
+                        // Start Date Picker
                         OutlinedButton(
                             onClick = {
                                 val c = Calendar.getInstance().apply { repeatStartDate?.let { timeInMillis = it } }
@@ -1987,13 +1988,47 @@ fun SingleTaskEditorView(
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(repeatStartDate?.let { "Start date: [${dateFormat.format(Date(it))}]" } ?: "Start date: [15 Sep 2026]")
+                            Text(repeatStartDate?.let { "Start date: [${dateFormat.format(Date(it))}]" } ?: "Set start date")
+                        }
+
+                        // Explicit Action Button to Set/Confirm Repeat Pattern
+                        Button(
+                            onClick = {
+                                val days = repeatCustomDaysText.toIntOrNull() ?: 0
+                                val hours = repeatCustomHoursText.toIntOrNull() ?: 0
+                                val minutes = repeatCustomMinutesText.toIntOrNull() ?: 0
+
+                                viewModel.saveTask(
+                                    task = task,
+                                    title = title,
+                                    notes = notes,
+                                    tags = tagsText,
+                                    priority = priority,
+                                    reminderEpochMs = reminderMs,
+                                    dueEpochMs = dueMs,
+                                    repeatRule = repeatRule,
+                                    repeatIntervalDays = days,
+                                    repeatIntervalHours = hours,
+                                    repeatIntervalMinutes = minutes,
+                                    repeatStartDate = repeatStartDate,
+                                    repeatStartTimeMs = repeatStartTimeMs,
+                                    repeatEndTimeMs = repeatEndTimeMs,
+                                    linkedTaskIds = task.linkedTaskIds
+                                )
+                                Toast.makeText(context, "Repeat pattern configured ✓", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Set / Apply Repeat Pattern")
                         }
                     }
                 }
             }
         }
 
+        // BIDIRECTIONAL CROSS-TASK LINKING
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Cross-Task Linking (Bidirectional)", fontWeight = FontWeight.Bold)
@@ -2070,6 +2105,9 @@ fun SingleTaskEditorView(
             }
         }
 
+        // ---------------------------------------------------------------------------------
+        // CHECKLISTS (FULL-WIDTH HORIZONTAL LAYOUT ACROSS UI LENGTH)
+        // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
@@ -2082,10 +2120,13 @@ fun SingleTaskEditorView(
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Checkbox(
                                     checked = item.isDone,
                                     onCheckedChange = { viewModel.toggleChecklistItem(item) }
@@ -2126,7 +2167,7 @@ fun SingleTaskEditorView(
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
                                         .padding(8.dp),
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
@@ -2161,15 +2202,15 @@ fun SingleTaskEditorView(
                             }
 
                             AnimatedVisibility(visible = isNoteExpanded) {
-                                Column(modifier = Modifier.padding(start = 36.dp, top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     OutlinedTextField(
                                         value = itemNoteText,
                                         onValueChange = {
                                             itemNoteText = it
                                             viewModel.updateChecklistItem(item, item.text, it, item.isDone)
                                         },
-                                        label = { Text("Checklist Item Note / Description") },
-                                        placeholder = { Text("Write extra instructions, links, or notes for this item...") },
+                                        label = { Text("Checklist Note / Description") },
+                                        placeholder = { Text("Add extra instructions, links, or sub-details...") },
                                         minLines = 2,
                                         maxLines = 6,
                                         singleLine = false,
@@ -2181,8 +2222,7 @@ fun SingleTaskEditorView(
                             Text(
                                 "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.createdTimestamp))} | Modified: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.lastModifiedTimestamp))}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline,
-                                modifier = Modifier.padding(start = 36.dp)
+                                color = MaterialTheme.colorScheme.outline
                             )
                         }
                     }
@@ -2214,6 +2254,9 @@ fun SingleTaskEditorView(
             }
         }
 
+        // ---------------------------------------------------------------------------------
+        // ATTACHMENTS & CONTACTS (FULL-WIDTH HORIZONTAL LAYOUT ACROSS UI LENGTH)
+        // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2302,7 +2345,7 @@ fun SingleTaskEditorView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(
@@ -2319,9 +2362,9 @@ fun SingleTaskEditorView(
                                     },
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
-                                Spacer(Modifier.width(8.dp))
+                                Spacer(Modifier.width(10.dp))
 
                                 Column(
                                     modifier = Modifier
@@ -2349,7 +2392,7 @@ fun SingleTaskEditorView(
                                     }
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                                     ) {
                                         Text("Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                         Text("Modified: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
@@ -2388,7 +2431,7 @@ fun SingleTaskEditorView(
                             }
 
                             AnimatedVisibility(visible = isAttachmentNoteExpanded) {
-                                Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     OutlinedTextField(
                                         value = attNoteText,
                                         onValueChange = {
@@ -2414,6 +2457,9 @@ fun SingleTaskEditorView(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// DESTINATION PICKER DIALOG (MOVE / COPY)
+// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskDestinationDialog(
     title: String,
