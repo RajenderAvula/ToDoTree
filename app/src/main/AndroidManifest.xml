@@ -31,7 +31,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:icon="@drawable/ic_launcher"
+        android:roundIcon="@drawable/ic_launcher"
         android:label="ToDoTree"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
