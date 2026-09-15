@@ -222,7 +222,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            // If the event didn't exist, or was deleted from the device calendar, perform fresh insert
             if (!updatedSuccessfully) {
                 val newEventId = CalendarHelper.insertEvent(
                     context = getApplication(),
@@ -273,6 +272,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         notes: String?,
         tags: String?,
         priority: TaskPriority,
+        createdTimestampMs: Long,
         reminderEpochMs: Long?,
         dueEpochMs: Long?,
         repeatRule: RecurrenceRule,
@@ -291,6 +291,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 notes = notes,
                 tags = tags,
                 priority = priority,
+                createdTimestamp = createdTimestampMs,
                 reminderTimestamp = reminderEpochMs,
                 dueTimestamp = dueEpochMs,
                 repeatRule = repeatRule,
@@ -441,7 +442,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -509,7 +509,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
