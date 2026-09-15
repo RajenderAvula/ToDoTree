@@ -236,20 +236,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun manualSyncTaskToCalendar(taskId: Long, onResult: (String) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val task = dao.getTaskById(taskId)
-            if (task == null) {
-                withContext(Dispatchers.Main) { onResult("Task not found") }
-                return@launch
-            }
-            val ok = syncTaskToCalendar(task)
-            withContext(Dispatchers.Main) {
-                onResult(if (ok) "Synced '${task.title}' to Google Calendar on created date ✓" else "Calendar sync failed: Check permissions.")
-            }
-        }
-    }
-
     fun syncAllTasksToCalendar(onDone: (Int) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val all = dao.getAllTasksSnapshot()
@@ -285,7 +271,11 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         dueEpochMs: Long?,
         repeatRule: RecurrenceRule,
         repeatIntervalDays: Int,
-        repeatTimestampMs: Long?,
+        repeatIntervalHours: Int,
+        repeatIntervalMinutes: Int,
+        repeatStartDate: Long?,
+        repeatStartTimeMs: Long?,
+        repeatEndTimeMs: Long?,
         linkedTaskIds: String?
     ) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -299,7 +289,11 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 dueTimestamp = dueEpochMs,
                 repeatRule = repeatRule,
                 repeatIntervalDays = repeatIntervalDays,
-                repeatTimestampMs = repeatTimestampMs,
+                repeatIntervalHours = repeatIntervalHours,
+                repeatIntervalMinutes = repeatIntervalMinutes,
+                repeatStartDate = repeatStartDate,
+                repeatStartTimeMs = repeatStartTimeMs,
+                repeatEndTimeMs = repeatEndTimeMs,
                 linkedTaskIds = linkedTaskIds,
                 lastModifiedTimestamp = now
             )
@@ -327,9 +321,16 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteTask(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
+            // Delete associated Google Calendar event
+            task.calendarEventId?.let { eventId ->
+                try {
+                    CalendarHelper.deleteEvent(getApplication(), eventId)
+                } catch (e: Exception) {
+                    Log.e("CalendarDelete", "Failed to delete event: $eventId", e)
+                }
+            }
             dao.deleteTask(task)
             workManager.cancelAllWorkByTag("TASK_${task.id}")
-            task.calendarEventId?.let { CalendarHelper.deleteEvent(getApplication(), it) }
         }
     }
 
