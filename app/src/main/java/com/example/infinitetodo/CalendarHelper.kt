@@ -8,7 +8,6 @@ import android.content.Context
 import android.os.Bundle
 import android.provider.CalendarContract
 import android.util.Log
-import java.util.Calendar
 import java.util.TimeZone
 
 object CalendarHelper {
@@ -19,21 +18,15 @@ object CalendarHelper {
         val accountType: String
     )
 
-    /**
-     * Resolves a calendar target that actively syncs with Google Calendar.
-     * Prioritizes accountType == "com.google" with write access.
-     */
     fun getPrimaryGoogleCalendar(context: Context): CalendarTarget? {
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
             CalendarContract.Calendars.ACCOUNT_NAME,
             CalendarContract.Calendars.ACCOUNT_TYPE,
             CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
-            CalendarContract.Calendars.VISIBLE,
-            CalendarContract.Calendars.SYNC_EVENTS
+            CalendarContract.Calendars.VISIBLE
         )
         val uri = CalendarContract.Calendars.CONTENT_URI
-
         var googleTarget: CalendarTarget? = null
         var fallbackTarget: CalendarTarget? = null
 
@@ -46,12 +39,9 @@ object CalendarHelper {
                     val accountType = it.getString(2) ?: ""
                     val accessLevel = it.getInt(3)
                     val visible = it.getInt(4)
-                    val syncEvents = it.getInt(5)
 
-                    // Must have write permissions (CONTRIBUTOR = 500, OWNER = 700)
                     if (accessLevel >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR) {
                         if (accountType.equals("com.google", ignoreCase = true)) {
-                            // Perfect match: Active Google Account Calendar
                             return CalendarTarget(id, accountName, accountType)
                         } else if (fallbackTarget == null && visible == 1) {
                             fallbackTarget = CalendarTarget(id, accountName, accountType)
@@ -62,8 +52,20 @@ object CalendarHelper {
         } catch (e: Exception) {
             Log.e("CalendarHelper", "Error resolving calendar target", e)
         }
-
         return googleTarget ?: fallbackTarget
+    }
+
+    /**
+     * Verifies if an event ID actually exists in the Android Calendar provider.
+     */
+    fun eventExists(context: Context, eventId: Long): Boolean {
+        return try {
+            val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+            val cursor = context.contentResolver.query(uri, arrayOf(CalendarContract.Events._ID), null, null, null)
+            cursor?.use { it.moveToFirst() } ?: false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun insertEvent(
@@ -74,10 +76,10 @@ object CalendarHelper {
         notes: String?
     ): Long? {
         return try {
-            // Anchor strictly to created timestamp (1 hour duration)
+            // Anchor strictly to local time with exact start and 1-hour duration
             val startTime = createdTimestampMs
             val endTime = createdTimestampMs + 3600000L
-            val timeZone = TimeZone.getDefault().id
+            val localTimeZone = TimeZone.getDefault().id
 
             val values = ContentValues().apply {
                 put(CalendarContract.Events.CALENDAR_ID, target.id)
@@ -86,7 +88,7 @@ object CalendarHelper {
                 put(CalendarContract.Events.DTSTART, startTime)
                 put(CalendarContract.Events.DTEND, endTime)
                 put(CalendarContract.Events.ALL_DAY, 0)
-                put(CalendarContract.Events.EVENT_TIMEZONE, timeZone)
+                put(CalendarContract.Events.EVENT_TIMEZONE, localTimeZone)
                 put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CONFIRMED)
                 put(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
             }
@@ -95,10 +97,8 @@ object CalendarHelper {
             val eventId = uri?.lastPathSegment?.toLongOrNull()
 
             if (eventId != null && target.accountType.equals("com.google", ignoreCase = true)) {
-                // Request background sync to Google Calendar cloud
                 triggerGoogleCalendarSync(target.accountName)
             }
-
             eventId
         } catch (e: Exception) {
             Log.e("CalendarHelper", "Insert event error", e)
@@ -113,30 +113,31 @@ object CalendarHelper {
         title: String,
         notes: String?,
         createdTimestampMs: Long
-    ) {
-        try {
+    ): Boolean {
+        return try {
             val startTime = createdTimestampMs
             val endTime = createdTimestampMs + 3600000L
-            val timeZone = TimeZone.getDefault().id
+            val localTimeZone = TimeZone.getDefault().id
 
             val values = ContentValues().apply {
                 put(CalendarContract.Events.TITLE, title)
-                if (notes != null) {
-                    put(CalendarContract.Events.DESCRIPTION, notes)
-                }
+                put(CalendarContract.Events.DESCRIPTION, notes ?: "")
                 put(CalendarContract.Events.DTSTART, startTime)
                 put(CalendarContract.Events.DTEND, endTime)
-                put(CalendarContract.Events.EVENT_TIMEZONE, timeZone)
+                put(CalendarContract.Events.ALL_DAY, 0)
+                put(CalendarContract.Events.EVENT_TIMEZONE, localTimeZone)
             }
 
             val updateUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
-            context.contentResolver.update(updateUri, values, null, null)
+            val rows = context.contentResolver.update(updateUri, values, null, null)
 
-            if (target.accountType.equals("com.google", ignoreCase = true)) {
+            if (rows > 0 && target.accountType.equals("com.google", ignoreCase = true)) {
                 triggerGoogleCalendarSync(target.accountName)
             }
+            rows > 0
         } catch (e: Exception) {
             Log.e("CalendarHelper", "Update event error", e)
+            false
         }
     }
 
