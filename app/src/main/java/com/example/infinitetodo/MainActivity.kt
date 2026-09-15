@@ -1565,7 +1565,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (UNIFIED REPEAT & 2-TIER FULL-WIDTH HORIZONTAL LAYOUT)
+// SINGLE TASK EDITOR VIEW (UNIFIED REPEAT, CREATED/SCHEDULED TIME & 2-TIER CARDS)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1578,12 +1578,17 @@ fun SingleTaskEditorView(
     val audioHelper = remember { AudioRecorderHelper(context) }
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
     val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
+    val fullDateTimeFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
     val scope = rememberCoroutineScope()
 
     var title by remember(task.id) { mutableStateOf(task.title) }
     var notes by remember(task.id) { mutableStateOf(task.notes ?: "") }
     var tagsText by remember(task.id) { mutableStateOf(task.tags ?: "") }
     var priority by remember(task.id) { mutableStateOf(task.priority) }
+
+    // Configurable Created / Scheduled Date-Time
+    var createdMs by remember(task.id) { mutableLongStateOf(task.createdTimestamp) }
+
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
 
@@ -1718,7 +1723,7 @@ fun SingleTaskEditorView(
                     PrintHelper.printTasks(
                         context = context,
                         jobName = "Task - ${title.ifBlank { "Untitled" }}",
-                        tasks = listOf(task.copy(title = title, notes = notes, priority = priority)),
+                        tasks = listOf(task.copy(title = title, notes = notes, priority = priority, createdTimestamp = createdMs)),
                         checklistsMap = mapOf(task.id to liveChecklist),
                         attachmentsMap = mapOf(task.id to liveAttachments)
                     )
@@ -1741,6 +1746,7 @@ fun SingleTaskEditorView(
                         notes = notes,
                         tags = tagsText,
                         priority = priority,
+                        createdTimestampMs = createdMs,
                         reminderEpochMs = reminderMs,
                         dueEpochMs = dueMs,
                         repeatRule = repeatRule,
@@ -1778,12 +1784,40 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        Row(
+        // CREATED / SCHEDULED TIME INTERACTIVE PICKER CARD
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
         ) {
-            Text("Created: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-            Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Scheduled / Created Time", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(
+                        onClick = {
+                            val cal = Calendar.getInstance().apply { timeInMillis = createdMs }
+                            DatePickerDialog(context, { _, y, m, d ->
+                                TimePickerDialog(context, { _, h, min ->
+                                    cal.set(y, m, d, h, min, 0)
+                                    createdMs = cal.timeInMillis
+                                }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
+                            }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                        }
+                    ) {
+                        Icon(Icons.Default.EditCalendar, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(fullDateTimeFormat.format(Date(createdMs)))
+                    }
+                }
+                Text(
+                    text = "Modified: ${fullDateTimeFormat.format(Date(task.lastModifiedTimestamp))}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1829,9 +1863,7 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // ---------------------------------------------------------------------------------
-        // REPEAT CONFIGURATION (DAYS, HOURS, MIN, START DATE, START TIME, END TIME FOR ALL)
-        // ---------------------------------------------------------------------------------
+        // SCHEDULE, DUE DATES & RECURRENCE
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Schedule & Due Dates", fontWeight = FontWeight.Bold)
@@ -2001,6 +2033,7 @@ fun SingleTaskEditorView(
                                     notes = notes,
                                     tags = tagsText,
                                     priority = priority,
+                                    createdTimestampMs = createdMs,
                                     reminderEpochMs = reminderMs,
                                     dueEpochMs = dueMs,
                                     repeatRule = repeatRule,
@@ -2331,7 +2364,9 @@ fun SingleTaskEditorView(
                     var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
 
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
                         Column(
