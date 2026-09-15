@@ -204,15 +204,17 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 "\n\nAttachments & Contacts:\n" + attachments.joinToString("\n") { "- [${it.type}] ${it.displayName}" }
             } else ""
 
-            val auditNote = "Created Stamp: ${dateFormat.format(Date(createdEpochMs))}\nModified Stamp: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
+            val auditNote = "Created: ${dateFormat.format(Date(createdEpochMs))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
             val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name}\n" else ""
             val fullDescription = "$auditNote$tagsSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
 
-            if (task.calendarEventId != null) {
+            val currentEventAlive = task.calendarEventId != null && CalendarHelper.eventExists(getApplication(), task.calendarEventId)
+
+            if (currentEventAlive) {
                 CalendarHelper.updateEvent(
                     context = getApplication(),
                     target = target,
-                    eventId = task.calendarEventId,
+                    eventId = task.calendarEventId!!,
                     title = fullCalendarTitle,
                     notes = fullDescription,
                     createdTimestampMs = createdEpochMs
