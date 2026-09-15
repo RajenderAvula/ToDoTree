@@ -686,7 +686,7 @@ fun HomeDashboardTab(
                                             Spacer(Modifier.width(4.dp))
                                             Text(
                                                 "${contact.displayName}: ${contact.contactPhone ?: "No Phone"} • ${if (contact.isContactPending) "Pending" else "Done"}",
-                                                style = MaterialTheme.typography.bodySmall,
+                                                style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
@@ -1565,7 +1565,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (UNIFIED REPEAT ANCHORS & HORIZONTAL CARDS)
+// SINGLE TASK EDITOR VIEW (UNIFIED REPEAT ACROSS ALL PRESETS & HORIZONTAL CARDS)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1830,7 +1830,7 @@ fun SingleTaskEditorView(
         )
 
         // ---------------------------------------------------------------------------------
-        // REPEAT & SCHEDULE CONFIGURATION (START TIME, END TIME, START DATE FOR ALL PRESETS)
+        // UNIVERSAL REPEAT & SCHEDULE (START TIME, END TIME, START DATE & INTERVALS FOR ALL)
         // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1890,13 +1890,25 @@ fun SingleTaskEditorView(
                         }
                         FilterChip(
                             selected = repeatRule == rule,
-                            onClick = { repeatRule = rule },
+                            onClick = {
+                                repeatRule = rule
+                                // Auto-populate days counter based on chosen preset
+                                when (rule) {
+                                    RecurrenceRule.DAILY -> { repeatCustomDaysText = "1"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
+                                    RecurrenceRule.WEEKLY -> { repeatCustomDaysText = "7"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
+                                    RecurrenceRule.FORTNIGHTLY -> { repeatCustomDaysText = "14"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
+                                    RecurrenceRule.MONTHLY -> { repeatCustomDaysText = "30"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
+                                    RecurrenceRule.SIX_MONTHLY -> { repeatCustomDaysText = "180"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
+                                    RecurrenceRule.YEARLY -> { repeatCustomDaysText = "365"; repeatCustomHoursText = "0"; repeatCustomMinutesText = "0" }
+                                    else -> {}
+                                }
+                            },
                             label = { Text(ruleLabel) }
                         )
                     }
                 }
 
-                // If any repetition is active, show Start Time, End Time, and Start Date
+                // If any repetition is active, show Days, Hours, Minutes, Start Time, End Time & Start Date
                 if (repeatRule != RecurrenceRule.NONE) {
                     Column(
                         modifier = Modifier
@@ -1905,45 +1917,36 @@ fun SingleTaskEditorView(
                             .padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Custom Intervals Entry with standard String Editing (No Overwriting)
-                        if (repeatRule == RecurrenceRule.CUSTOM) {
-                            Text("Every Interval:", fontWeight = FontWeight.SemiBold)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Text("Days:")
-                                OutlinedTextField(
-                                    value = repeatCustomDaysText,
-                                    onValueChange = { input ->
-                                        repeatCustomDaysText = input.filter { it.isDigit() }
-                                    },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(64.dp),
-                                    singleLine = true
-                                )
-                                Text("Hrs:")
-                                OutlinedTextField(
-                                    value = repeatCustomHoursText,
-                                    onValueChange = { input ->
-                                        repeatCustomHoursText = input.filter { it.isDigit() }
-                                    },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(64.dp),
-                                    singleLine = true
-                                )
-                                Text("Min:")
-                                OutlinedTextField(
-                                    value = repeatCustomMinutesText,
-                                    onValueChange = { input ->
-                                        repeatCustomMinutesText = input.filter { it.isDigit() }
-                                    },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(64.dp),
-                                    singleLine = true
-                                )
-                            }
+                        Text("Interval Duration:", fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Days:")
+                            OutlinedTextField(
+                                value = repeatCustomDaysText,
+                                onValueChange = { input -> repeatCustomDaysText = input.filter { it.isDigit() } },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(64.dp),
+                                singleLine = true
+                            )
+                            Text("Hrs:")
+                            OutlinedTextField(
+                                value = repeatCustomHoursText,
+                                onValueChange = { input -> repeatCustomHoursText = input.filter { it.isDigit() } },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(64.dp),
+                                singleLine = true
+                            )
+                            Text("Min:")
+                            OutlinedTextField(
+                                value = repeatCustomMinutesText,
+                                onValueChange = { input -> repeatCustomMinutesText = input.filter { it.isDigit() } },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(64.dp),
+                                singleLine = true
+                            )
                         }
 
                         // Start Time & End Time
@@ -1991,7 +1994,7 @@ fun SingleTaskEditorView(
                             Text(repeatStartDate?.let { "Start date: [${dateFormat.format(Date(it))}]" } ?: "Set start date")
                         }
 
-                        // Explicit Action Button to Set/Confirm Repeat Pattern
+                        // Explicit Action Button to Apply Repeat Pattern
                         Button(
                             onClick = {
                                 val days = repeatCustomDaysText.toIntOrNull() ?: 0
@@ -2106,7 +2109,7 @@ fun SingleTaskEditorView(
         }
 
         // ---------------------------------------------------------------------------------
-        // CHECKLISTS (FULL-WIDTH HORIZONTAL LAYOUT ACROSS UI LENGTH)
+        // CHECKLISTS (FULL-WIDTH HORIZONTAL SPREAD ACROSS ENTIRE UI BREADTH)
         // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2122,7 +2125,7 @@ fun SingleTaskEditorView(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -2228,7 +2231,7 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedTextField(
                         value = newChecklistText,
                         onValueChange = { newChecklistText = it },
@@ -2255,7 +2258,7 @@ fun SingleTaskEditorView(
         }
 
         // ---------------------------------------------------------------------------------
-        // ATTACHMENTS & CONTACTS (FULL-WIDTH HORIZONTAL LAYOUT ACROSS UI LENGTH)
+        // ATTACHMENTS & CONTACTS (FULL-WIDTH HORIZONTAL SPREAD ACROSS ENTIRE UI BREADTH)
         // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2303,7 +2306,7 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = manualContactName,
                         onValueChange = { manualContactName = it },
@@ -2347,7 +2350,7 @@ fun SingleTaskEditorView(
                             .padding(vertical = 4.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
