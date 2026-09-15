@@ -8,6 +8,7 @@ import android.content.Context
 import android.os.Bundle
 import android.provider.CalendarContract
 import android.util.Log
+import java.util.Calendar
 import java.util.TimeZone
 
 object CalendarHelper {
@@ -56,16 +57,41 @@ object CalendarHelper {
     }
 
     /**
-     * Verifies if an event ID actually exists in the Android Calendar provider.
+     * Verifies if an event ID actually exists and is NOT marked deleted in the provider.
      */
     fun eventExists(context: Context, eventId: Long): Boolean {
         return try {
             val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
-            val cursor = context.contentResolver.query(uri, arrayOf(CalendarContract.Events._ID), null, null, null)
-            cursor?.use { it.moveToFirst() } ?: false
+            val projection = arrayOf(CalendarContract.Events._ID, CalendarContract.Events.DELETED)
+            val cursor = context.contentResolver.query(uri, projection, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val deletedCol = it.getColumnIndex(CalendarContract.Events.DELETED)
+                    val isDeleted = if (deletedCol != -1) it.getInt(deletedCol) == 1 else false
+                    !isDeleted
+                } else {
+                    false
+                }
+            } ?: false
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * Calculates an end time that never rolls over into the next day.
+     */
+    private fun calculateSafeEndTime(startTimeMs: Long, requestedDurationMs: Long = 1800000L): Long {
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = startTimeMs
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+            set(Calendar.SECOND, 59)
+            set(Calendar.MILLISECOND, 999)
+        }
+        val endOfDayMs = cal.timeInMillis
+        val naturalEnd = startTimeMs + requestedDurationMs
+        return if (naturalEnd > endOfDayMs) endOfDayMs else naturalEnd
     }
 
     fun insertEvent(
@@ -76,9 +102,8 @@ object CalendarHelper {
         notes: String?
     ): Long? {
         return try {
-            // Anchor strictly to local time with exact start and 1-hour duration
             val startTime = createdTimestampMs
-            val endTime = createdTimestampMs + 3600000L
+            val endTime = calculateSafeEndTime(startTime, 1800000L) // Default 30 min duration
             val localTimeZone = TimeZone.getDefault().id
 
             val values = ContentValues().apply {
@@ -116,7 +141,7 @@ object CalendarHelper {
     ): Boolean {
         return try {
             val startTime = createdTimestampMs
-            val endTime = createdTimestampMs + 3600000L
+            val endTime = calculateSafeEndTime(startTime, 1800000L)
             val localTimeZone = TimeZone.getDefault().id
 
             val values = ContentValues().apply {
