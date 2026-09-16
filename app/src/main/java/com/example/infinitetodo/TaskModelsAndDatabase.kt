@@ -33,7 +33,10 @@ enum class AttachmentType {
 enum class AppThemeMode {
     LIGHT,
     DARK,
-    SYSTEM
+    SYSTEM,
+    EMERALD,
+    SUNSET,
+    OCEAN
 }
 
 enum class TaskViewMode {
@@ -99,7 +102,8 @@ data class ChecklistItem(
     val notes: String? = null,
     val isDone: Boolean = false,
     val orderIndex: Int = 0,
-    val createdTimestamp: Long = System.currentTimeMillis()
+    val createdTimestamp: Long = System.currentTimeMillis(),
+    val lastModifiedTimestamp: Long = System.currentTimeMillis()
 )
 
 @Entity(
@@ -124,7 +128,8 @@ data class RichAttachment(
     val isContactPending: Boolean = true,
     val notes: String? = null,
     val orderIndex: Int = 0,
-    val createdTimestamp: Long = System.currentTimeMillis()
+    val createdTimestamp: Long = System.currentTimeMillis(),
+    val lastModifiedTimestamp: Long = System.currentTimeMillis()
 )
 
 @Dao
@@ -147,6 +152,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks ORDER BY createdTimestamp DESC")
     suspend fun getAllTasksSync(): List<TaskItem>
 
+    @Query("SELECT * FROM tasks ORDER BY id ASC")
+    suspend fun getAllTasksSnapshot(): List<TaskItem>
+
     @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
     suspend fun getTaskById(id: Long): TaskItem?
 
@@ -166,18 +174,33 @@ interface TaskDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: TaskItem): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllTasks(tasks: List<TaskItem>)
+
     @Update
     suspend fun updateTask(task: TaskItem)
 
     @Delete
     suspend fun deleteTask(task: TaskItem)
 
+    @Query("DELETE FROM tasks")
+    suspend fun clearAllTasks()
+
     // Checklist queries
     @Query("SELECT * FROM checklists WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     fun getChecklist(taskId: Long): Flow<List<ChecklistItem>>
 
+    @Query("SELECT * FROM checklists WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
+    suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
+
+    @Query("SELECT * FROM checklists ORDER BY id ASC")
+    suspend fun getAllChecklistSnapshot(): List<ChecklistItem>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItem(item: ChecklistItem): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllChecklistItems(items: List<ChecklistItem>)
 
     @Update
     suspend fun updateChecklistItem(item: ChecklistItem)
@@ -189,8 +212,17 @@ interface TaskDao {
     @Query("SELECT * FROM attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     fun getAttachments(taskId: Long): Flow<List<RichAttachment>>
 
+    @Query("SELECT * FROM attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
+    suspend fun getAttachmentsSnapshot(taskId: Long): List<RichAttachment>
+
+    @Query("SELECT * FROM attachments ORDER BY id ASC")
+    suspend fun getAllAttachmentsSnapshot(): List<RichAttachment>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttachment(attachment: RichAttachment): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllAttachments(attachments: List<RichAttachment>)
 
     @Update
     suspend fun updateAttachment(attachment: RichAttachment)
@@ -201,7 +233,7 @@ interface TaskDao {
 
 @Database(
     entities = [TaskItem::class, ChecklistItem::class, RichAttachment::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -217,7 +249,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "infinite_todo.db"
-                ).build()
+                ).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }
