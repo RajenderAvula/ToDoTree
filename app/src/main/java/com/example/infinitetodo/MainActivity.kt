@@ -1368,19 +1368,28 @@ fun SettingsManagerTab(
     val context = LocalContext.current
     var showThemeDialog by remember { mutableStateOf(false) }
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
 
     val createBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
     ) { uri: Uri? ->
-        uri?.let { destUri ->
-            context.contentResolver.openOutputStream(destUri)?.use { outStream ->
-                viewModel.backupToDevice(outStream) { success ->
-                    Toast.makeText(
-                        context,
-                        if (success) "Backup saved to device successfully!" else "Backup failed",
-                        Toast.LENGTH_SHORT
-                    ).show()
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            try {
+                val outputStream = context.contentResolver.openOutputStream(uri)
+                if (outputStream != null) {
+                    viewModel.backupToDevice(outputStream) { success ->
+                        Toast.makeText(
+                            context,
+                            if (success) "Backup saved to device successfully!" else "Backup failed to write",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } else {
+                    Toast.makeText(context, "Cannot open selected storage location", Toast.LENGTH_SHORT).show()
                 }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Backup error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1388,15 +1397,23 @@ fun SettingsManagerTab(
     val restoreBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { sourceUri ->
-            context.contentResolver.openInputStream(sourceUri)?.use { inStream ->
-                viewModel.restoreBackup(inStream) { success ->
-                    Toast.makeText(
-                        context,
-                        if (success) "Backup restored successfully from device!" else "Restore failed",
-                        Toast.LENGTH_SHORT
-                    ).show()
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                if (inputStream != null) {
+                    viewModel.restoreBackup(inputStream) { success ->
+                        Toast.makeText(
+                            context,
+                            if (success) "Backup restored successfully from device!" else "Restore failed: Invalid or corrupt zip",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } else {
+                    Toast.makeText(context, "Cannot open selected backup file", Toast.LENGTH_SHORT).show()
                 }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Restore error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
     }
