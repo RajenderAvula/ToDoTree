@@ -1,6 +1,7 @@
 package com.example.infinitetodo
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.util.Log
@@ -28,7 +29,11 @@ data class FilterCriteria(
     val createdFromMs: Long? = null,
     val createdToMs: Long? = null,
     val dueFromMs: Long? = null,
-    val dueToMs: Long? = null
+    val dueToMs: Long? = null,
+
+    // Location Filters
+    val mustHaveLocation: Boolean = false,
+    val selectedLocations: Set<String> = emptySet()
 )
 
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
@@ -90,6 +95,18 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         for (t in all) {
             t.tags?.split(",")?.forEach { tag ->
                 val clean = tag.trim()
+                if (clean.isNotEmpty()) set.add(clean)
+            }
+        }
+        return set.sorted()
+    }
+
+    suspend fun getAllUniqueLocations(): List<String> {
+        val all = dao.getAllTasksSnapshot()
+        val set = mutableSetOf<String>()
+        for (t in all) {
+            t.locationName?.let { loc ->
+                val clean = loc.trim()
                 if (clean.isNotEmpty()) set.add(clean)
             }
         }
@@ -175,6 +192,100 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    suspend fun buildTaskHierarchySchemaText(taskId: Long): String {
+        val rootTask = dao.getTaskById(taskId) ?: return ""
+        val sb = StringBuilder()
+        val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+
+        val path = getHierarchyPathString(taskId)
+        sb.append("📋 TASK EXPORT SCHEMA\n")
+        sb.append("Hierarchy Path: $path\n")
+        sb.append("======================================\n\n")
+
+        suspend fun appendNode(node: TaskItem, indentLevel: Int) {
+            val indent = "  ".repeat(indentLevel)
+            val statusSymbol = if (node.isCompleted) "[COMPLETED ✓]" else "[PENDING]"
+            sb.append("${indent}● ${node.title.ifBlank { "Untitled" }} $statusSymbol\n")
+            sb.append("${indent}  - Priority: ${node.priority.name}\n")
+            sb.append("${indent}  - Created: ${dateFormat.format(Date(node.createdTimestamp))}\n")
+
+            if (!node.tags.isNullOrBlank()) {
+                sb.append("${indent}  - Tags: ${node.tags}\n")
+            }
+
+            if (!node.locationName.isNullOrBlank() || (node.latitude != null && node.longitude != null)) {
+                val locTitle = node.locationName ?: "Pinned Location"
+                sb.append("${indent}  - 📍 Location: $locTitle\n")
+                if (node.latitude != null && node.longitude != null) {
+                    sb.append("${indent}    Map Link: https://maps.google.com/?q=${node.latitude},${node.longitude}\n")
+                }
+            }
+
+            if (!node.notes.isNullOrBlank()) {
+                sb.append("${indent}  - Notes: ${node.notes}\n")
+            }
+
+            val checklists = dao.getChecklistSnapshot(node.id)
+            if (checklists.isNotEmpty()) {
+                sb.append("${indent}  - Checklists:\n")
+                checklists.forEach { chk ->
+                    val chkBox = if (chk.isDone) "[x]" else "[ ]"
+                    sb.append("${indent}    $chkBox ${chk.text}\n")
+                }
+            }
+
+            val attachments = dao.getAttachmentsSnapshot(node.id)
+            if (attachments.isNotEmpty()) {
+                sb.append("${indent}  - Attachments/Contacts:\n")
+                attachments.forEach { att ->
+                    val phoneInfo = if (att.contactPhone != null) " (${att.contactPhone})" else ""
+                    sb.append("${indent}    * [${att.type}] ${att.displayName}$phoneInfo\n")
+                }
+            }
+
+            sb.append("\n")
+
+            val children = dao.getSubtasksSnapshot(node.id)
+            for (child in children) {
+                appendNode(child, indentLevel + 1)
+            }
+        }
+
+        appendNode(rootTask, 0)
+        return sb.toString()
+    }
+
+    fun shareTaskData(context: Context, taskId: Long, targetPackage: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val schemaText = buildTaskHierarchySchemaText(taskId)
+            val task = dao.getTaskById(taskId)
+            val subject = "Task Schema: ${task?.title ?: "Export"}"
+
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, subject)
+                putExtra(Intent.EXTRA_TEXT, schemaText)
+                if (targetPackage != null) {
+                    `package` = targetPackage
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                try {
+                    if (targetPackage != null) {
+                        context.startActivity(sendIntent)
+                    } else {
+                        val chooser = Intent.createChooser(sendIntent, "Share Task via")
+                        context.startActivity(chooser)
+                    }
+                } catch (_: Exception) {
+                    val chooser = Intent.createChooser(sendIntent, "Share Task via")
+                    context.startActivity(chooser)
+                }
+            }
+        }
+    }
+
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -197,6 +308,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
             val notesBody = task.notes ?: ""
             val tagsSummary = if (!task.tags.isNullOrBlank()) "Tags: [${task.tags}]\n" else ""
+            val locSummary = if (!task.locationName.isNullOrBlank() || (task.latitude != null && task.longitude != null)) {
+                "Location: ${task.locationName ?: "Coordinates: ${task.latitude}, ${task.longitude}"}\n"
+            } else ""
+
             val chkSummary = if (checklists.isNotEmpty()) {
                 "\n\nChecklist:\n" + checklists.joinToString("\n") { (if (it.isDone) "✓ " else "○ ") + it.text }
             } else ""
@@ -206,7 +321,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
             val auditNote = "Created: ${dateFormat.format(Date(createdEpochMs))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
             val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name}\n" else ""
-            val fullDescription = "$auditNote$tagsSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
+            val fullDescription = "$auditNote$tagsSummary$locSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
 
             var updatedSuccessfully = false
             val currentEventAlive = task.calendarEventId != null && CalendarHelper.eventExists(getApplication(), task.calendarEventId!!)
@@ -282,7 +397,10 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         repeatStartDate: Long?,
         repeatStartTimeMs: Long?,
         repeatEndTimeMs: Long?,
-        linkedTaskIds: String?
+        linkedTaskIds: String?,
+        locationName: String?,
+        latitude: Double?,
+        longitude: Double?
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
@@ -302,6 +420,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 repeatStartTimeMs = repeatStartTimeMs,
                 repeatEndTimeMs = repeatEndTimeMs,
                 linkedTaskIds = linkedTaskIds,
+                locationName = locationName,
+                latitude = latitude,
+                longitude = longitude,
                 lastModifiedTimestamp = now
             )
             dao.updateTask(updated)
