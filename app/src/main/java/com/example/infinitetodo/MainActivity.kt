@@ -1375,7 +1375,11 @@ fun SettingsManagerTab(
         uri?.let { destUri ->
             context.contentResolver.openOutputStream(destUri)?.use { outStream ->
                 viewModel.backupToDevice(outStream) { success ->
-                    Toast.makeText(context, if (success) "Backup saved successfully!" else "Backup failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        if (success) "Backup saved to device successfully!" else "Backup failed",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         }
@@ -1387,7 +1391,11 @@ fun SettingsManagerTab(
         uri?.let { sourceUri ->
             context.contentResolver.openInputStream(sourceUri)?.use { inStream ->
                 viewModel.restoreBackup(inStream) { success ->
-                    Toast.makeText(context, if (success) "Backup restored successfully!" else "Restore failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        if (success) "Backup restored successfully from device!" else "Restore failed",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         }
@@ -1420,18 +1428,20 @@ fun SettingsManagerTab(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Backup & Restore Data", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
+                // 1. BACKUP TO DEVICE
                 Button(
                     onClick = {
-                        createBackupLauncher.launch("ToDoTree_CloudBackup_${System.currentTimeMillis()}.zip")
+                        createBackupLauncher.launch("ToDoTree_DeviceBackup_${System.currentTimeMillis()}.zip")
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Default.CloudUpload, contentDescription = null)
+                    Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Backup to Cloud (Google Drive / Storage)")
+                    Text("Backup to Device (ZIP)")
                 }
 
+                // 2. BACKUP VIA EMAIL
                 OutlinedButton(
                     onClick = {
                         viewModel.sendBackupViaMail { intent ->
@@ -1451,6 +1461,7 @@ fun SettingsManagerTab(
 
                 HorizontalDivider()
 
+                // 3. RESTORE FROM DEVICE
                 Button(
                     onClick = {
                         restoreBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
@@ -1458,9 +1469,9 @@ fun SettingsManagerTab(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.CloudDownload, contentDescription = null)
+                    Icon(Icons.Default.Restore, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Restore from Cloud / Device")
+                    Text("Restore from Device")
                 }
             }
         }
