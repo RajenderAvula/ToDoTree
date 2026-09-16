@@ -1451,9 +1451,16 @@ fun TaskNodeView(
     val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
     val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
+// 1. Zero-latency: current layer is purely derived from recursive tree depth
+    val currentLayer = depth + 1
 
-    var layerLevel by remember { mutableStateOf(1) }
-    var layersBelow by remember { mutableStateOf(0) }
+    // 2. Re-evaluates whenever subtasks list changes (add/delete/indent)
+    var layersBelow by remember { mutableIntStateOf(0) }
+    LaunchedEffect(task.id, subtasks) {
+        layersBelow = viewModel.getDescendantLayersCount(task.id)
+    }
+    /*var layerLevel by remember { mutableStateOf(1) }*/
+   /*var layersBelow by remember { mutableStateOf(0) }*/
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
