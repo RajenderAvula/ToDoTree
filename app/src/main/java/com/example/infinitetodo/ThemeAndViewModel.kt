@@ -5,83 +5,70 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-enum class AppThemeMode {
-    SYSTEM, LIGHT, DARK, EMERALD, SUNSET, OCEAN
-}
-
-enum class TaskViewMode {
-    DETAILED, COMPACT
-}
-
 object ThemePreferences {
-    private const val PREFS_NAME = "todo_tree_theme_prefs"
-    private const val KEY_THEME = "key_app_theme"
-    private const val KEY_VIEW_MODE = "key_view_mode"
+    private const val PREFS_NAME = "infinite_todo_prefs"
+    private const val KEY_THEME = "selected_theme_mode"
+    private const val KEY_VIEW_MODE = "selected_view_mode"
 
-    fun saveTheme(context: Context, theme: AppThemeMode) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_THEME, theme.name)
-            .apply()
+    fun saveTheme(context: Context, mode: AppThemeMode) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_THEME, mode.name).apply()
     }
 
     fun getTheme(context: Context): AppThemeMode {
-        val name = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_THEME, AppThemeMode.SYSTEM.name)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val name = prefs.getString(KEY_THEME, AppThemeMode.SYSTEM.name) ?: AppThemeMode.SYSTEM.name
         return try {
-            AppThemeMode.valueOf(name ?: AppThemeMode.SYSTEM.name)
+            AppThemeMode.valueOf(name)
         } catch (_: Exception) {
             AppThemeMode.SYSTEM
         }
     }
 
     fun saveViewMode(context: Context, mode: TaskViewMode) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_VIEW_MODE, mode.name)
-            .apply()
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_VIEW_MODE, mode.name).apply()
     }
 
     fun getViewMode(context: Context): TaskViewMode {
-        val name = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_VIEW_MODE, TaskViewMode.DETAILED.name)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val name = prefs.getString(KEY_VIEW_MODE, TaskViewMode.DETAILED.name) ?: TaskViewMode.DETAILED.name
         return try {
-            TaskViewMode.valueOf(name ?: TaskViewMode.DETAILED.name)
+            TaskViewMode.valueOf(name)
         } catch (_: Exception) {
             TaskViewMode.DETAILED
         }
     }
 }
 
-// Custom theme color palettes
-private val EmeraldColorScheme = lightColorScheme(
-    primary = Color(0xFF0F766E),
+private val EmeraldLightColors = lightColorScheme(
+    primary = Color(0xFF006C4C),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFCCFBF1),
-    onPrimaryContainer = Color(0xFF115E59),
-    secondary = Color(0xFF047857),
-    background = Color(0xFFF0FDF4),
-    surface = Color(0xFFFFFFFF)
+    primaryContainer = Color(0xFF89F8C7),
+    onPrimaryContainer = Color(0xFF002114),
+    secondary = Color(0xFF4D6356),
+    background = Color(0xFFFBFDF9),
+    surface = Color(0xFFFBFDF9)
 )
 
-private val SunsetColorScheme = lightColorScheme(
-    primary = Color(0xFFEA580C),
+private val SunsetLightColors = lightColorScheme(
+    primary = Color(0xFFB3271E),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFFFEDD5),
-    onPrimaryContainer = Color(0xFF9A3412),
-    secondary = Color(0xFFD97706),
-    background = Color(0xFFFFF7ED),
-    surface = Color(0xFFFFFFFF)
+    primaryContainer = Color(0xFFFFDAD5),
+    onPrimaryContainer = Color(0xFF410002),
+    secondary = Color(0xFF775652),
+    background = Color(0xFFFFFBFA),
+    surface = Color(0xFFFFFBFA)
 )
 
-private val OceanColorScheme = lightColorScheme(
-    primary = Color(0xFF0284C7),
+private val OceanLightColors = lightColorScheme(
+    primary = Color(0xFF006495),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFE0F2FE),
-    onPrimaryContainer = Color(0xFF0369A1),
-    secondary = Color(0xFF2563EB),
-    background = Color(0xFFF8FAFC),
-    surface = Color(0xFFFFFFFF)
+    primaryContainer = Color(0xFFCBE6FF),
+    onPrimaryContainer = Color(0xFF001E30),
+    secondary = Color(0xFF50606E),
+    background = Color(0xFFFCFCFF),
+    surface = Color(0xFFFCFCFF)
 )
 
 @Composable
@@ -91,16 +78,17 @@ fun InfiniteTodoTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = when (themeMode) {
-        AppThemeMode.SYSTEM -> if (isDarkSystem) darkColorScheme() else lightColorScheme()
         AppThemeMode.LIGHT -> lightColorScheme()
         AppThemeMode.DARK -> darkColorScheme()
-        AppThemeMode.EMERALD -> EmeraldColorScheme
-        AppThemeMode.SUNSET -> SunsetColorScheme
-        AppThemeMode.OCEAN -> OceanColorScheme
+        AppThemeMode.SYSTEM -> if (isDarkSystem) darkColorScheme() else lightColorScheme()
+        AppThemeMode.EMERALD -> EmeraldLightColors
+        AppThemeMode.SUNSET -> SunsetLightColors
+        AppThemeMode.OCEAN -> OceanLightColors
     }
 
     MaterialTheme(
         colorScheme = colorScheme,
+        typography = Typography(),
         content = content
     )
 }
