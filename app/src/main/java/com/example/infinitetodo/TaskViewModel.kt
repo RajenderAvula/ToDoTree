@@ -504,7 +504,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
+ /*   private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
         val result = mutableListOf<TaskItem>()
         val immediateChildren = dao.getSubtasksSync(parentId)
         for (child in immediateChildren) {
@@ -512,7 +512,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             result.addAll(getAllDescendants(child.id))
         }
         return result
-    }
+    }*/
     
 
     fun moveTaskVertical(task: TaskItem, directionUp: Boolean) {
