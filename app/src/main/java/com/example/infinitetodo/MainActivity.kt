@@ -350,7 +350,7 @@ fun ContactActionRow(
             }
             Spacer(Modifier.width(4.dp))
 
-            // All Apps Menu Button (Telegram & System Sharesheet for Signal/Slack/Gmail)
+            // All Apps Menu Button
             Box {
                 FilledTonalIconButton(
                     modifier = Modifier.size(28.dp),
@@ -1237,15 +1237,20 @@ fun SettingsManagerTab(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Backup & Restore Data", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
-                OutlinedButton(
-                    onClick = { createBackupLauncher.launch("ToDoTree_Backup_${System.currentTimeMillis()}.zip") },
-                    modifier = Modifier.fillMaxWidth()
+                // 1. Direct Cloud / Google Drive Export via SAF
+                Button(
+                    onClick = { 
+                        createBackupLauncher.launch("ToDoTree_CloudBackup_${System.currentTimeMillis()}.zip") 
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Default.Save, contentDescription = null)
+                    Icon(Icons.Default.CloudUpload, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Backup to Device (ZIP)")
+                    Text("Backup to Cloud (Google Drive / Storage)")
                 }
 
+                // 2. Email Backup
                 OutlinedButton(
                     onClick = {
                         viewModel.sendBackupViaMail { intent ->
@@ -1265,14 +1270,17 @@ fun SettingsManagerTab(
 
                 HorizontalDivider()
 
+                // 3. Restore from Cloud / Device
                 Button(
-                    onClick = { restoreBackupLauncher.launch(arrayOf("application/zip", "*/*")) },
+                    onClick = { 
+                        restoreBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) 
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.Restore, contentDescription = null)
+                    Icon(Icons.Default.CloudDownload, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Restore from Device / Mail")
+                    Text("Restore from Cloud / Device")
                 }
             }
         }
