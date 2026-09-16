@@ -5,7 +5,6 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
-import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -34,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -261,6 +261,152 @@ fun MainAppScaffold(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// COMPACT CONTACT QUICK ACTION STRIP (CALL, SMS, WHATSAPP, TELEGRAM & ALL APPS)
+// -----------------------------------------------------------------------------------------
+@Composable
+fun ContactActionRow(
+    displayName: String,
+    phoneNumber: String,
+    isPending: Boolean,
+    onTogglePending: (() -> Unit)? = null
+) {
+    val context = LocalContext.current
+    var showExtraMenu by remember { mutableStateOf(false) }
+
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.padding(vertical = 3.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(Modifier.width(6.dp))
+
+            Column {
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = phoneNumber,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(Modifier.width(10.dp))
+
+            // Call Action
+            FilledTonalIconButton(
+                modifier = Modifier.size(28.dp),
+                onClick = { LocationAndContactHelper.launchDialer(context, phoneNumber) }
+            ) {
+                Icon(
+                    Icons.Default.Phone,
+                    contentDescription = "Call",
+                    tint = Color(0xFF1976D2),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+
+            // SMS Action
+            FilledTonalIconButton(
+                modifier = Modifier.size(28.dp),
+                onClick = { LocationAndContactHelper.launchSms(context, phoneNumber) }
+            ) {
+                Icon(
+                    Icons.Default.ChatBubble,
+                    contentDescription = "Text SMS",
+                    tint = Color(0xFFF57C00),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+
+            // WhatsApp Action
+            FilledTonalIconButton(
+                modifier = Modifier.size(28.dp),
+                onClick = { LocationAndContactHelper.launchWhatsApp(context, phoneNumber) }
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "WhatsApp",
+                    tint = Color(0xFF2E7D32),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            Spacer(Modifier.width(4.dp))
+
+            // All Apps Menu Button (Telegram & System Sharesheet for Signal/Slack/Gmail)
+            Box {
+                FilledTonalIconButton(
+                    modifier = Modifier.size(28.dp),
+                    onClick = { showExtraMenu = true }
+                ) {
+                    Icon(
+                        Icons.Default.Apps,
+                        contentDescription = "All Messaging Apps",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showExtraMenu,
+                    onDismissRequest = { showExtraMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Open in Telegram") },
+                        leadingIcon = { Icon(Icons.Default.Send, contentDescription = null, tint = Color(0xFF0288D1)) },
+                        onClick = {
+                            showExtraMenu = false
+                            LocationAndContactHelper.launchTelegram(context, phoneNumber)
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share via Any Installed App...") },
+                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                        onClick = {
+                            showExtraMenu = false
+                            LocationAndContactHelper.openAllAppsContactMenu(context, displayName, phoneNumber)
+                        }
+                    )
+                }
+            }
+
+            if (onTogglePending != null) {
+                Spacer(Modifier.width(6.dp))
+                Surface(
+                    color = if (isPending) Color(0xFFFFF3E0) else Color(0xFFE8F5E9),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.clickable { onTogglePending() }
+                ) {
+                    Text(
+                        text = if (isPending) "Pending" else "Done ✓",
+                        color = if (isPending) Color(0xFFE65100) else Color(0xFF2E7D32),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun DeleteConfirmationDialog(
     title: String,
@@ -281,9 +427,7 @@ fun DeleteConfirmationDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
 }
@@ -414,7 +558,7 @@ fun TaskFilterHeaderBar(
 
         AnimatedVisibility(visible = showFilterSheet) {
             Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Location Filters: Quick toggle & Unique Location Place Chips
+                // Location Filters
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Location:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
 
@@ -699,6 +843,7 @@ fun HomeDashboardTab(
                             }
                         }
 
+                        // Compact Contact Action Strip
                         if (contacts.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -708,22 +853,22 @@ fun HomeDashboardTab(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 contacts.forEach { contact ->
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.secondaryContainer,
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(Modifier.width(4.dp))
-                                            Text(
-                                                "${contact.displayName}: ${contact.contactPhone ?: "No Phone"} • ${if (contact.isContactPending) "Pending" else "Done"}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
+                                    val phone = contact.contactPhone ?: ""
+                                    if (phone.isNotBlank()) {
+                                        ContactActionRow(
+                                            displayName = contact.displayName,
+                                            phoneNumber = phone,
+                                            isPending = contact.isContactPending,
+                                            onTogglePending = {
+                                                viewModel.updateAttachment(
+                                                    contact,
+                                                    contact.displayName,
+                                                    contact.notes,
+                                                    contact.contactPhone,
+                                                    !contact.isContactPending
+                                                )
+                                            }
+                                        )
                                     }
                                 }
                             }
@@ -1192,7 +1337,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (WITH LOCATION DISPLAY & QUICK SHARE)
+// REUSABLE TASK TREE ROW (WITH LOCATION DISPLAY & QUICK CONTACTS ACTIONS)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -1386,7 +1531,7 @@ fun TaskNodeView(
                     }
                 }
 
-                // Location Badge on Row
+                // Location Badge on Row (Direct click launches Map)
                 if (!task.locationName.isNullOrBlank() || (task.latitude != null && task.longitude != null)) {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
@@ -1395,11 +1540,7 @@ fun TaskNodeView(
                             .padding(start = 36.dp, top = 4.dp)
                             .clickable {
                                 if (task.latitude != null && task.longitude != null) {
-                                    val mapIntent = Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse("geo:${task.latitude},${task.longitude}?q=${task.latitude},${task.longitude}(${task.locationName ?: "Task"})")
-                                    )
-                                    context.startActivity(mapIntent)
+                                    LocationAndContactHelper.openInMap(context, task.latitude, task.longitude, task.locationName)
                                 }
                             }
                     ) {
@@ -1428,6 +1569,7 @@ fun TaskNodeView(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
+                // Compact Contact Quick Action Strip (Call, Text, WhatsApp, All Apps)
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -1437,22 +1579,22 @@ fun TaskNodeView(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         contacts.forEach { contact ->
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(13.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(
-                                        "${contact.displayName}: ${contact.contactPhone ?: "No Phone"} • ${if (contact.isContactPending) "Pending" else "Done"}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
+                            val phone = contact.contactPhone ?: ""
+                            if (phone.isNotBlank()) {
+                                ContactActionRow(
+                                    displayName = contact.displayName,
+                                    phoneNumber = phone,
+                                    isPending = contact.isContactPending,
+                                    onTogglePending = {
+                                        viewModel.updateAttachment(
+                                            contact,
+                                            contact.displayName,
+                                            contact.notes,
+                                            contact.contactPhone,
+                                            !contact.isContactPending
+                                        )
+                                    }
+                                )
                             }
                         }
                     }
@@ -1693,27 +1835,25 @@ fun SingleTaskEditorView(
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
 
+    // Location Permission Launcher
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
         if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            try {
-                val locManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-                val lastLoc = locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                    ?: locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                if (lastLoc != null) {
-                    latitude = lastLoc.latitude
-                    longitude = lastLoc.longitude
+            LocationAndContactHelper.requestFreshLocation(
+                context = context,
+                onLocationFound = { loc ->
+                    latitude = loc.latitude
+                    longitude = loc.longitude
                     if (locationName.isBlank()) {
-                        locationName = "Location (${String.format("%.4f", lastLoc.latitude)}, ${String.format("%.4f", lastLoc.longitude)})"
+                        locationName = "Location (${String.format("%.4f", loc.latitude)}, ${String.format("%.4f", loc.longitude)})"
                     }
                     Toast.makeText(context, "Location pinned!", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "GPS location unavailable currently", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: SecurityException) {
-                Toast.makeText(context, "Permission missing", Toast.LENGTH_SHORT).show()
-            }
+                },
+                onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
+            )
+        } else {
+            Toast.makeText(context, "Location permission denied", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -1920,11 +2060,12 @@ fun SingleTaskEditorView(
                         if (latitude != null && longitude != null) {
                             OutlinedButton(
                                 onClick = {
-                                    val mapIntent = Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude(${locationName.ifBlank { "Task Location" }})")
+                                    LocationAndContactHelper.openInMap(
+                                        context,
+                                        latitude!!,
+                                        longitude!!,
+                                        locationName.ifBlank { null }
                                     )
-                                    context.startActivity(mapIntent)
                                 },
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                             ) {
@@ -2380,7 +2521,6 @@ fun SingleTaskEditorView(
                                         Icon(
                                             Icons.Default.NoteAlt,
                                             contentDescription = "Note",
-                                            modifier = Modifier.size(18.dp),
                                             tint = if (!item.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                                         )
                                     }
@@ -2459,7 +2599,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // ATTACHMENTS & CONTACTS (FULL SCREEN BREADTH: 2-TIER HORIZONTAL LAYOUT)
+        // ATTACHMENTS & CONTACTS (WITH COMPACT 1-TAP ACTION STRIPS)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2610,6 +2750,25 @@ fun SingleTaskEditorView(
                                 }
                             }
 
+                            // If Contact, Display Call, Text, WhatsApp & All Apps Options
+                            if (att.type == AttachmentType.CONTACT && !att.contactPhone.isNullOrBlank()) {
+                                ContactActionRow(
+                                    displayName = att.displayName,
+                                    phoneNumber = att.contactPhone,
+                                    isPending = att.isContactPending,
+                                    onTogglePending = {
+                                        viewModel.updateAttachment(
+                                            att,
+                                            att.displayName,
+                                            att.notes,
+                                            att.contactPhone,
+                                            !att.isContactPending
+                                        )
+                                    }
+                                )
+                            }
+
+                            // TIER 2: Timestamps & Action Buttons
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
