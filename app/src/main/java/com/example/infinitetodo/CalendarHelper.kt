@@ -56,9 +56,6 @@ object CalendarHelper {
         return googleTarget ?: fallbackTarget
     }
 
-    /**
-     * Verifies if an event ID actually exists and is NOT marked deleted in the provider.
-     */
     fun eventExists(context: Context, eventId: Long): Boolean {
         return try {
             val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
@@ -78,9 +75,6 @@ object CalendarHelper {
         }
     }
 
-    /**
-     * Calculates an end time that never rolls over into the next day.
-     */
     private fun calculateSafeEndTime(startTimeMs: Long, requestedDurationMs: Long = 1800000L): Long {
         val cal = Calendar.getInstance().apply {
             timeInMillis = startTimeMs
@@ -103,7 +97,7 @@ object CalendarHelper {
     ): Long? {
         return try {
             val startTime = createdTimestampMs
-            val endTime = calculateSafeEndTime(startTime, 1800000L) // Default 30 min duration
+            val endTime = calculateSafeEndTime(startTime, 1800000L)
             val localTimeZone = TimeZone.getDefault().id
 
             val values = ContentValues().apply {
