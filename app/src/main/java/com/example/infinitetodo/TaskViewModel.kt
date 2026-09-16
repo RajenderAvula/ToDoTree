@@ -446,20 +446,41 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             syncTaskToCalendar(updated)
         }
     }
-
+/**
+     * Recursively deletes the main task and every nested child from:
+     * 1. WorkManager notification queue
+     * 2. Google Calendar via CalendarContract
+     * 3. Local Room Database
+     */
     fun deleteTask(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            task.calendarEventId?.let { eventId ->
-                try {
-                    CalendarHelper.deleteEvent(getApplication(), eventId)
-                } catch (e: Exception) {
-                    Log.e("CalendarDelete", "Failed to delete event: $eventId", e)
+            // Collect all children, grandchildren, etc.
+            val allDescendants = getAllDescendants(task.id)
+            val allToDelete = listOf(task) + allDescendants
+
+            // Clean up calendar events & local notification alarms for all of them
+            for (t in allToDelete) {
+                workManager.cancelAllWorkByTag("TASK_${t.id}")
+                t.calendarEventId?.let { calEventId ->
+                    CalendarHelper.deleteEvent(getApplication(), calEventId)
                 }
             }
+
+            // Room CASCADE handles child rows in DB once parent is deleted
             dao.deleteTask(task)
-            workManager.cancelAllWorkByTag("TASK_${task.id}")
         }
     }
+
+    private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
+        val result = mutableListOf<TaskItem>()
+        val immediateChildren = dao.getSubtasksSync(parentId)
+        for (child in immediateChildren) {
+            result.add(child)
+            result.addAll(getAllDescendants(child.id))
+        }
+        return result
+    }
+    
 
     fun moveTaskVertical(task: TaskItem, directionUp: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
