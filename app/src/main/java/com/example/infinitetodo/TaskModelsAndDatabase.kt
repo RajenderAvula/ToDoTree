@@ -58,7 +58,7 @@ data class TaskItem(
     val repeatStartTimeMs: Long? = null,
     val repeatEndTimeMs: Long? = null,
     val linkedTaskIds: String? = null,
-
+val completedTimestamp: Long? = null,
     // Location Fields
     val locationName: String? = null,
     val latitude: Double? = null,
