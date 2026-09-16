@@ -262,7 +262,7 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
-// COMPACT CONTACT QUICK ACTION STRIP (DEDUPLICATED SINGLE-SOURCE DISPLAY)
+// COMPACT CONTACT QUICK ACTION STRIP (DEDUPLICATED)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
@@ -622,7 +622,6 @@ fun TaskFilterHeaderBar(
 
         AnimatedVisibility(visible = showFilterSheet) {
             Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                // Location Filters
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Location:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
 
@@ -907,7 +906,7 @@ fun HomeDashboardTab(
                             }
                         }
 
-                        // REMINDER / DUE / REPEAT METADATA ROW
+                        // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
                         TaskMetadataStatusRow(task)
 
                         // Location Display
@@ -1134,7 +1133,7 @@ fun CalendarAgendaTab(
                             Checkbox(checked = task.isCompleted, onCheckedChange = { viewModel.toggleTaskCompletion(task) })
                         }
 
-                        // REMINDER / DUE / REPEAT METADATA ROW
+                        // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
                         TaskMetadataStatusRow(task)
                     }
                 }
@@ -1621,7 +1620,7 @@ fun TaskNodeView(
                     }
                 }
 
-                // REMINDER / DUE / REPEAT METADATA ROW
+                // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
                 TaskMetadataStatusRow(task)
 
                 // Location Badge on Row
@@ -1877,7 +1876,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (CANCEL DUE/REMINDER/REPEAT & DEDUPLICATED CONTACTS)
+// SINGLE TASK EDITOR VIEW
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1929,11 +1928,14 @@ fun SingleTaskEditorView(
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
 
-    // Location Permission & Reverse Geocoding Trigger
+    // Direct Single-Attempt Place Resolver
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
-        if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+        val fineGranted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarseGranted = perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+        if (fineGranted || coarseGranted) {
             isResolvingLocation = true
             LocationAndContactHelper.requestFreshLocation(
                 context = context,
@@ -1941,10 +1943,38 @@ fun SingleTaskEditorView(
                     latitude = loc.latitude
                     longitude = loc.longitude
 
-                    LocationAndContactHelper.fetchPlaceName(context, loc.latitude, loc.longitude) { resolvedPlaceName ->
-                        locationName = resolvedPlaceName
+                    if (locationName.isBlank()) {
+                        locationName = "Resolving place name..."
+                    }
+
+                    scope.launch {
+                        val place = LocationAndContactHelper.resolvePlaceName(context, loc.latitude, loc.longitude)
+                        locationName = place
                         isResolvingLocation = false
-                        Toast.makeText(context, "Location pinned: $resolvedPlaceName", Toast.LENGTH_SHORT).show()
+
+                        // Automatically persist changes to Room database immediately
+                        viewModel.saveTask(
+                            task = task,
+                            title = title,
+                            notes = notes,
+                            tags = tagsText,
+                            priority = priority,
+                            createdTimestampMs = createdMs,
+                            reminderEpochMs = reminderMs,
+                            dueEpochMs = dueMs,
+                            repeatRule = repeatRule,
+                            repeatIntervalDays = repeatDaysText.toIntOrNull() ?: 0,
+                            repeatIntervalHours = repeatHoursText.toIntOrNull() ?: 0,
+                            repeatIntervalMinutes = repeatMinutesText.toIntOrNull() ?: 0,
+                            repeatStartDate = repeatStartDate,
+                            repeatStartTimeMs = repeatStartTimeMs,
+                            repeatEndTimeMs = repeatEndTimeMs,
+                            linkedTaskIds = task.linkedTaskIds,
+                            locationName = place,
+                            latitude = loc.latitude,
+                            longitude = loc.longitude
+                        )
+                        Toast.makeText(context, "Location saved: $place", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onError = { err ->
@@ -2056,7 +2086,7 @@ fun SingleTaskEditorView(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // TOP CONTROL STRIP (PRINT, SHARE, SAVE)
+        // TOP CONTROL STRIP (SHARE, SAVE)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
