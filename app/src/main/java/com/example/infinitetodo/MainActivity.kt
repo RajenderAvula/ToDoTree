@@ -409,10 +409,144 @@ fun ContactActionRow(
     }
 }
 
+
+@Composable
+fun TaskMetadataStatusRow(
+    task: TaskItem,
+    modifier: Modifier = Modifier
+) {
+    val dateTimeFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(top = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // 1. Completion Status Badge (Struck off / Done)
+        if (task.isCompleted) {
+            val doneDate = task.completedTimestamp ?: task.lastModifiedTimestamp
+            Surface(
+                color = Color(0xFFE8F5E9),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Completed",
+                        modifier = Modifier.size(13.dp),
+                        tint = Color(0xFF2E7D32)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "Completed: ${dateTimeFormat.format(Date(doneDate))}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        } else {
+            // 2. Due Date Badge (with Overdue styling)
+            task.dueTimestamp?.let { due ->
+                val isOverdue = due < System.currentTimeMillis()
+                Surface(
+                    color = if (isOverdue) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Event,
+                            contentDescription = "Due Date",
+                            modifier = Modifier.size(12.dp),
+                            tint = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = "Due: ${dateTimeFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (isOverdue) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+
+        // 3. Reminder Badge
+        task.reminderTimestamp?.let { reminder ->
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Alarm,
+                        contentDescription = "Reminder",
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "Remind: ${dateTimeFormat.format(Date(reminder))}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+
+        // 4. Repeat Rule Badge
+        if (task.repeatRule != RecurrenceRule.NONE) {
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Repeat,
+                        contentDescription = "Repeat",
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.secondary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = when (task.repeatRule) {
+                            RecurrenceRule.DAILY -> "Daily"
+                            RecurrenceRule.WEEKLY -> "Weekly"
+                            RecurrenceRule.FORTNIGHTLY -> "Fortnightly"
+                            RecurrenceRule.MONTHLY -> "Monthly"
+                            RecurrenceRule.SIX_MONTHLY -> "Six-Monthly"
+                            RecurrenceRule.YEARLY -> "Yearly"
+                            RecurrenceRule.CUSTOM -> "Every ${task.repeatIntervalDays}d ${task.repeatIntervalHours}h ${task.repeatIntervalMinutes}m"
+                            RecurrenceRule.NONE -> ""
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+        }
+    }
+}
 // -----------------------------------------------------------------------------------------
 // REUSABLE TASK STATUS ROW (REMINDER, DUE DATE, RECURRENCE REFLECTION CHIPS)
 // -----------------------------------------------------------------------------------------
-@Composable
+/*@Composable
 fun TaskMetadataStatusRow(task: TaskItem) {
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
@@ -469,7 +603,7 @@ fun TaskMetadataStatusRow(task: TaskItem) {
             }
         }
     }
-}
+}*/
 
 @Composable
 fun DeleteConfirmationDialog(
@@ -1047,7 +1181,11 @@ fun CalendarAgendaTab(
     val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("EEE, dd MMM yyyy", Locale.getDefault()) }
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-
+val eventTimestamp = if (task.isCompleted) {
+    task.completedTimestamp ?: task.lastModifiedTimestamp
+} else {
+    task.dueTimestamp ?: task.createdTimestamp
+}
     var searchQuery by remember { mutableStateOf("") }
     val filterState by viewModel.filterState.collectAsState()
 
@@ -1149,7 +1287,12 @@ fun GanttChartTab(
 ) {
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
-
+val taskStart = task.createdTimestamp
+val taskEnd = if (task.isCompleted) {
+    task.completedTimestamp ?: task.lastModifiedTimestamp
+} else {
+    task.dueTimestamp ?: (taskStart + 86400000L)
+}
     val ganttTasks = remember(allTasks) {
         allTasks.sortedBy { it.createdTimestamp }
     }
@@ -1892,6 +2035,14 @@ fun SingleTaskEditorView(
     viewModel: TaskViewModel,
     onOpenReferencedCrossTab: (TaskItem) -> Unit
 ) {
+    if (task.isCompleted && task.completedTimestamp != null) {
+    Text(
+        text = "Completed: ${fullDateTimeFormat.format(Date(task.completedTimestamp))}",
+        style = MaterialTheme.typography.labelMedium,
+        color = Color(0xFF2E7D32),
+        fontWeight = FontWeight.Bold
+    )
+    }
     val context = LocalContext.current
     val audioHelper = remember { AudioRecorderHelper(context) }
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
