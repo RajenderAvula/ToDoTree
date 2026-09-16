@@ -1468,7 +1468,7 @@ fun TaskNodeView(
 
     LaunchedEffect(task.id) {
         scope.launch {
-            layerLevel = viewModel.getLayerLevel(task.id)
+           /* layerLevel = viewModel.getLayerLevel(task.id)*/
             layersBelow = viewModel.getDescendantLayersCount(task.id)
         }
     }
