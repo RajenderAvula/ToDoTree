@@ -3,7 +3,9 @@ package com.example.infinitetodo
 import android.Manifest
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.content.Context
 import android.content.Intent
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -129,7 +131,9 @@ fun MainAppScaffold(
             Manifest.permission.WRITE_CALENDAR,
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CAMERA
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             list.add(Manifest.permission.POST_NOTIFICATIONS)
@@ -365,11 +369,15 @@ fun TaskFilterHeaderBar(
     val context = LocalContext.current
     val dateChipFormat = remember { SimpleDateFormat("dd MMM", Locale.getDefault()) }
     var availableTags by remember { mutableStateOf<List<String>>(emptyList()) }
+    var availableLocations by remember { mutableStateOf<List<String>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(showFilterSheet) {
         if (showFilterSheet) {
-            scope.launch { availableTags = viewModel.getAllUniqueTags() }
+            scope.launch {
+                availableTags = viewModel.getAllUniqueTags()
+                availableLocations = viewModel.getAllUniqueLocations()
+            }
         }
     }
 
@@ -382,7 +390,7 @@ fun TaskFilterHeaderBar(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
-            placeholder = { Text("Search task, tag, note, contact...") },
+            placeholder = { Text("Search task, tag, note, contact, location...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -395,7 +403,7 @@ fun TaskFilterHeaderBar(
                         Icon(
                             Icons.Default.FilterList,
                             contentDescription = "Filters",
-                            tint = if (filterState.priorities.isNotEmpty() || filterState.statusPending != null || filterState.mustHaveContact || filterState.selectedTags.isNotEmpty() || filterState.createdFromMs != null || filterState.dueFromMs != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                            tint = if (filterState.priorities.isNotEmpty() || filterState.statusPending != null || filterState.mustHaveContact || filterState.mustHaveLocation || filterState.selectedLocations.isNotEmpty() || filterState.selectedTags.isNotEmpty() || filterState.createdFromMs != null || filterState.dueFromMs != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         )
                     }
                 }
@@ -406,6 +414,30 @@ fun TaskFilterHeaderBar(
 
         AnimatedVisibility(visible = showFilterSheet) {
             Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Location Filters: Quick toggle & Unique Location Place Chips
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Location:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
+
+                    FilterChip(
+                        selected = filterState.mustHaveLocation,
+                        onClick = { viewModel.updateFilter(filterState.copy(mustHaveLocation = !filterState.mustHaveLocation)) },
+                        leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error) },
+                        label = { Text("Has Location") }
+                    )
+
+                    availableLocations.forEach { loc ->
+                        FilterChip(
+                            selected = loc in filterState.selectedLocations,
+                            onClick = {
+                                val current = filterState.selectedLocations.toMutableSet()
+                                if (loc in current) current.remove(loc) else current.add(loc)
+                                viewModel.updateFilter(filterState.copy(selectedLocations = current))
+                            },
+                            label = { Text("📍 $loc") }
+                        )
+                    }
+                }
+
                 if (availableTags.isNotEmpty()) {
                     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Tags:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
@@ -535,6 +567,8 @@ fun HomeDashboardTab(
             (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
             (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
             (filterState.selectedTags.isEmpty() || (task.tags?.split(",")?.map { it.trim() }?.any { it in filterState.selectedTags } == true)) &&
+            (!filterState.mustHaveLocation || (!task.locationName.isNullOrBlank() || task.latitude != null)) &&
+            (filterState.selectedLocations.isEmpty() || (task.locationName != null && task.locationName in filterState.selectedLocations)) &&
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
         }
@@ -722,6 +756,8 @@ fun TasksTreeTab(
             (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
             (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
             (filterState.selectedTags.isEmpty() || (task.tags?.split(",")?.map { it.trim() }?.any { it in filterState.selectedTags } == true)) &&
+            (!filterState.mustHaveLocation || (!task.locationName.isNullOrBlank() || task.latitude != null)) &&
+            (filterState.selectedLocations.isEmpty() || (task.locationName != null && task.locationName in filterState.selectedLocations)) &&
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
         }
@@ -795,6 +831,8 @@ fun CalendarAgendaTab(
             (filterState.priorities.isEmpty() || task.priority in filterState.priorities) &&
             (filterState.statusPending == null || (if (filterState.statusPending == true) !task.isCompleted else task.isCompleted)) &&
             (filterState.selectedTags.isEmpty() || (task.tags?.split(",")?.map { it.trim() }?.any { it in filterState.selectedTags } == true)) &&
+            (!filterState.mustHaveLocation || (!task.locationName.isNullOrBlank() || task.latitude != null)) &&
+            (filterState.selectedLocations.isEmpty() || (task.locationName != null && task.locationName in filterState.selectedLocations)) &&
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
         }.sortedBy { it.createdTimestamp }
@@ -1154,7 +1192,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW
+// REUSABLE TASK TREE ROW (WITH LOCATION DISPLAY & QUICK SHARE)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -1185,6 +1223,7 @@ fun TaskNodeView(
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     LaunchedEffect(task.id) {
         scope.launch {
@@ -1347,6 +1386,38 @@ fun TaskNodeView(
                     }
                 }
 
+                // Location Badge on Row
+                if (!task.locationName.isNullOrBlank() || (task.latitude != null && task.longitude != null)) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier
+                            .padding(start = 36.dp, top = 4.dp)
+                            .clickable {
+                                if (task.latitude != null && task.longitude != null) {
+                                    val mapIntent = Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse("geo:${task.latitude},${task.longitude}?q=${task.latitude},${task.longitude}(${task.locationName ?: "Task"})")
+                                    )
+                                    context.startActivity(mapIntent)
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(13.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = task.locationName ?: "Pinned (${task.latitude}, ${task.longitude})",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1420,6 +1491,12 @@ fun TaskNodeView(
                         }
                         IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyToTarget(task) }) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Copy Target", modifier = Modifier.size(17.dp))
+                        }
+                        IconButton(
+                            modifier = Modifier.size(30.dp),
+                            onClick = { viewModel.shareTaskData(context, task.id) }
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(17.dp))
                         }
                         IconButton(
                             modifier = Modifier.size(36.dp),
@@ -1565,7 +1642,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (UNIFIED REPEAT, CREATED/SCHEDULED TIME & 2-TIER CARDS)
+// SINGLE TASK EDITOR VIEW (LOCATION, SHARING, SCHEDULE, CHECKLISTS, ATTACHMENTS)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1585,12 +1662,14 @@ fun SingleTaskEditorView(
     var notes by remember(task.id) { mutableStateOf(task.notes ?: "") }
     var tagsText by remember(task.id) { mutableStateOf(task.tags ?: "") }
     var priority by remember(task.id) { mutableStateOf(task.priority) }
-
-    // Configurable Created / Scheduled Date-Time
     var createdMs by remember(task.id) { mutableLongStateOf(task.createdTimestamp) }
-
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
+
+    // Location State
+    var locationName by remember(task.id) { mutableStateOf(task.locationName ?: "") }
+    var latitude by remember(task.id) { mutableStateOf(task.latitude) }
+    var longitude by remember(task.id) { mutableStateOf(task.longitude) }
 
     // Universal Repeat Parameters
     var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }
@@ -1613,6 +1692,30 @@ fun SingleTaskEditorView(
     val liveChecklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            try {
+                val locManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                val lastLoc = locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                    ?: locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                if (lastLoc != null) {
+                    latitude = lastLoc.latitude
+                    longitude = lastLoc.longitude
+                    if (locationName.isBlank()) {
+                        locationName = "Location (${String.format("%.4f", lastLoc.latitude)}, ${String.format("%.4f", lastLoc.longitude)})"
+                    }
+                    Toast.makeText(context, "Location pinned!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "GPS location unavailable currently", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: SecurityException) {
+                Toast.makeText(context, "Permission missing", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     if (itemPendingDeleteChecklist != null) {
         DeleteConfirmationDialog(
@@ -1660,7 +1763,7 @@ fun SingleTaskEditorView(
                 task.id,
                 AttachmentType.VIDEO,
                 tempVideoUri.toString(),
-                "Video Recording ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())}"
+                "Video Recording ${fullDateTimeFormat.format(Date())}"
             )
         }
     }
@@ -1713,25 +1816,27 @@ fun SingleTaskEditorView(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // TOP CONTROL STRIP (PRINT, SHARE, SAVE)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(
-                onClick = {
-                    PrintHelper.printTasks(
-                        context = context,
-                        jobName = "Task - ${title.ifBlank { "Untitled" }}",
-                        tasks = listOf(task.copy(title = title, notes = notes, priority = priority, createdTimestamp = createdMs)),
-                        checklistsMap = mapOf(task.id to liveChecklist),
-                        attachmentsMap = mapOf(task.id to liveAttachments)
-                    )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(
+                    onClick = { viewModel.shareTaskData(context, task.id) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Share")
                 }
-            ) {
-                Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Print Task")
+
+                OutlinedButton(
+                    onClick = { viewModel.shareTaskData(context, task.id, targetPackage = "com.whatsapp") }
+                ) {
+                    Text("WhatsApp")
+                }
             }
 
             Button(
@@ -1756,14 +1861,17 @@ fun SingleTaskEditorView(
                         repeatStartDate = repeatStartDate,
                         repeatStartTimeMs = repeatStartTimeMs,
                         repeatEndTimeMs = repeatEndTimeMs,
-                        linkedTaskIds = task.linkedTaskIds
+                        linkedTaskIds = task.linkedTaskIds,
+                        locationName = locationName.ifBlank { null },
+                        latitude = latitude,
+                        longitude = longitude
                     )
                     Toast.makeText(context, "Saved changes ✓", Toast.LENGTH_SHORT).show()
                 }
             ) {
                 Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Save Changes")
+                Spacer(Modifier.width(4.dp))
+                Text("Save")
             }
         }
 
@@ -1775,6 +1883,78 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
+        // LOCATION PINNING & MAPS SECTION
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Task Location", fontWeight = FontWeight.Bold)
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FilledTonalButton(
+                            onClick = {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Pin GPS", style = MaterialTheme.typography.labelSmall)
+                        }
+
+                        if (latitude != null && longitude != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    val mapIntent = Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude(${locationName.ifBlank { "Task Location" }})")
+                                    )
+                                    context.startActivity(mapIntent)
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Map", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = locationName,
+                    onValueChange = { locationName = it },
+                    label = { Text("Location Name / Place") },
+                    placeholder = { Text("e.g. Office, Starbucks, Campus Hall B") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (latitude != null && longitude != null) {
+                    Text(
+                        text = "GPS Coordinates: ${String.format("%.5f", latitude)}, ${String.format("%.5f", longitude)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
         OutlinedTextField(
             value = tagsText,
             onValueChange = { tagsText = it },
@@ -1784,7 +1964,7 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // CREATED / SCHEDULED TIME INTERACTIVE PICKER CARD
+        // SCHEDULED / CREATED TIME PICKER
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
@@ -1820,6 +2000,7 @@ fun SingleTaskEditorView(
             }
         }
 
+        // PRIORITY SELECTION
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Priority Level:", fontWeight = FontWeight.SemiBold)
             Row(
@@ -2043,7 +2224,10 @@ fun SingleTaskEditorView(
                                     repeatStartDate = repeatStartDate,
                                     repeatStartTimeMs = repeatStartTimeMs,
                                     repeatEndTimeMs = repeatEndTimeMs,
-                                    linkedTaskIds = task.linkedTaskIds
+                                    linkedTaskIds = task.linkedTaskIds,
+                                    locationName = locationName.ifBlank { null },
+                                    latitude = latitude,
+                                    longitude = longitude
                                 )
                                 Toast.makeText(context, "Repeat pattern applied ✓", Toast.LENGTH_SHORT).show()
                             },
@@ -2135,9 +2319,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // ---------------------------------------------------------------------------------
         // CHECKLISTS (FULL SCREEN BREADTH: 2-TIER HORIZONTAL LAYOUT)
-        // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
@@ -2158,7 +2340,6 @@ fun SingleTaskEditorView(
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // TIER 1: Full-width Title & Checkbox
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically
@@ -2180,7 +2361,6 @@ fun SingleTaskEditorView(
                                 )
                             }
 
-                            // TIER 2: Full-width Timestamp & Action Buttons
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2279,9 +2459,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // ---------------------------------------------------------------------------------
         // ATTACHMENTS & CONTACTS (FULL SCREEN BREADTH: 2-TIER HORIZONTAL LAYOUT)
-        // ---------------------------------------------------------------------------------
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2307,7 +2485,7 @@ fun SingleTaskEditorView(
                             recordedAudioPath = audioHelper.stopRecording()
                             isRecordingAudio = false
                             recordedAudioPath?.let {
-                                viewModel.addAttachment(task.id, AttachmentType.AUDIO, it, "Voice Memo ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date())}")
+                                viewModel.addAttachment(task.id, AttachmentType.AUDIO, it, "Voice Memo ${fullDateTimeFormat.format(Date())}")
                             }
                         } else {
                             audioHelper.startRecording()
@@ -2375,7 +2553,6 @@ fun SingleTaskEditorView(
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            // TIER 1: Full-width Header: Icon, Name/Phone, & Status
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2433,7 +2610,6 @@ fun SingleTaskEditorView(
                                 }
                             }
 
-                            // TIER 2: Full-width Timestamps & Action Buttons
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
