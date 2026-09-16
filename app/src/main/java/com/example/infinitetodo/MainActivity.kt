@@ -262,7 +262,7 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
-// COMPACT CONTACT QUICK ACTION STRIP (DEDUPLICATED)
+// COMPACT CONTACT QUICK ACTION STRIP
 // -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
@@ -310,60 +310,36 @@ fun ContactActionRow(
 
             Spacer(Modifier.width(8.dp))
 
-            // Call Action
             FilledTonalIconButton(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchDialer(context, phoneNumber) }
             ) {
-                Icon(
-                    Icons.Default.Phone,
-                    contentDescription = "Call",
-                    tint = Color(0xFF1976D2),
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.Default.Phone, contentDescription = "Call", tint = Color(0xFF1976D2), modifier = Modifier.size(14.dp))
             }
             Spacer(Modifier.width(4.dp))
 
-            // SMS Action
             FilledTonalIconButton(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchSms(context, phoneNumber) }
             ) {
-                Icon(
-                    Icons.Default.ChatBubble,
-                    contentDescription = "Text SMS",
-                    tint = Color(0xFFF57C00),
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.Default.ChatBubble, contentDescription = "Text SMS", tint = Color(0xFFF57C00), modifier = Modifier.size(14.dp))
             }
             Spacer(Modifier.width(4.dp))
 
-            // WhatsApp Action
             FilledTonalIconButton(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchWhatsApp(context, phoneNumber) }
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "WhatsApp",
-                    tint = Color(0xFF2E7D32),
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "WhatsApp", tint = Color(0xFF2E7D32), modifier = Modifier.size(14.dp))
             }
             Spacer(Modifier.width(4.dp))
 
-            // All Apps Menu Button
             Box {
                 FilledTonalIconButton(
                     modifier = Modifier.size(28.dp),
                     onClick = { showExtraMenu = true }
                 ) {
-                    Icon(
-                        Icons.Default.Apps,
-                        contentDescription = "All Messaging Apps",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(15.dp)
-                    )
+                    Icon(Icons.Default.Apps, contentDescription = "All Apps", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
                 }
 
                 DropdownMenu(
@@ -410,7 +386,7 @@ fun ContactActionRow(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK STATUS ROW (REMINDER, DUE DATE, RECURRENCE REFLECTION CHIPS)
+// REUSABLE TASK STATUS ROW (REFLECTS COMPLETED TIME AS DUE DATE)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskMetadataStatusRow(task: TaskItem) {
@@ -436,17 +412,25 @@ fun TaskMetadataStatusRow(task: TaskItem) {
 
             task.dueTimestamp?.let { due ->
                 val isOverdue = due < System.currentTimeMillis() && !task.isCompleted
+                val labelText = if (task.isCompleted) "Done: ${dateFormat.format(Date(due))}" else "Due: ${dateFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}"
+
                 Surface(
-                    color = if (isOverdue) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant,
+                    color = if (task.isCompleted) Color(0xFFE8F5E9) else if (isOverdue) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(4.dp)
                 ) {
                     Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Event, contentDescription = null, modifier = Modifier.size(12.dp), tint = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline)
+                        Icon(
+                            imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.Event,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = if (task.isCompleted) Color(0xFF2E7D32) else if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline
+                        )
                         Spacer(Modifier.width(3.dp))
                         Text(
-                            "Due: ${dateFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}",
+                            text = labelText,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (task.isCompleted) Color(0xFF2E7D32) else if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (task.isCompleted) FontWeight.Bold else FontWeight.Normal
                         )
                     }
                 }
@@ -528,14 +512,21 @@ fun HighlightedText(
     text: String,
     query: String,
     style: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyMedium,
-    fontWeight: FontWeight? = null
+    fontWeight: FontWeight? = null,
+    isStrikethrough: Boolean = false
 ) {
     if (query.isBlank() || !text.contains(query, ignoreCase = true)) {
-        Text(text, style = style, fontWeight = fontWeight)
+        Text(
+            text = text,
+            style = style,
+            fontWeight = fontWeight,
+            textDecoration = if (isStrikethrough) TextDecoration.LineThrough else null,
+            color = if (isStrikethrough) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else Color.Unspecified
+        )
         return
     }
 
-    val annotated = remember(text, query) {
+    val annotated = remember(text, query, isStrikethrough) {
         buildAnnotatedString {
             var startIndex = 0
             val lowerText = text.lowercase()
@@ -552,7 +543,8 @@ fun HighlightedText(
                     SpanStyle(
                         background = Color(0xFFFFD54F),
                         color = Color(0xFF212121),
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        textDecoration = if (isStrikethrough) TextDecoration.LineThrough else TextDecoration.None
                     )
                 )
                 append(text.substring(index, index + query.length))
@@ -562,7 +554,13 @@ fun HighlightedText(
         }
     }
 
-    Text(annotated, style = style, fontWeight = fontWeight)
+    Text(
+        text = annotated,
+        style = style,
+        fontWeight = fontWeight,
+        textDecoration = if (isStrikethrough) TextDecoration.LineThrough else null,
+        color = if (isStrikethrough) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else Color.Unspecified
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -878,7 +876,8 @@ fun HomeDashboardTab(
                                     text = task.title.ifBlank { "Untitled Task" },
                                     query = searchQuery,
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    isStrikethrough = task.isCompleted
                                 )
 
                                 if (!task.tags.isNullOrBlank()) {
@@ -894,7 +893,8 @@ fun HomeDashboardTab(
                                     HighlightedText(
                                         text = task.notes,
                                         query = searchQuery,
-                                        style = MaterialTheme.typography.bodySmall
+                                        style = MaterialTheme.typography.bodySmall,
+                                        isStrikethrough = task.isCompleted
                                     )
                                 }
                             }
@@ -906,10 +906,8 @@ fun HomeDashboardTab(
                             }
                         }
 
-                        // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
                         TaskMetadataStatusRow(task)
 
-                        // Location Display
                         if (!task.locationName.isNullOrBlank()) {
                             Surface(
                                 color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
@@ -924,7 +922,6 @@ fun HomeDashboardTab(
                             }
                         }
 
-                        // Compact Contact Action Strip (Deduplicated)
                         if (contacts.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -1061,7 +1058,7 @@ fun CalendarAgendaTab(
             (filterState.selectedLocations.isEmpty() || (task.locationName != null && task.locationName in filterState.selectedLocations)) &&
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
-        }.sortedBy { it.createdTimestamp }
+        }.sortedBy { it.dueTimestamp ?: it.createdTimestamp }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1092,6 +1089,8 @@ fun CalendarAgendaTab(
                     scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
                 }
 
+                val eventTimestamp = task.dueTimestamp ?: task.createdTimestamp
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1113,16 +1112,26 @@ fun CalendarAgendaTab(
                             Column(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .background(if (task.isCompleted) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.primaryContainer)
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(timeFormat.format(Date(task.createdTimestamp)), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text(
+                                    text = timeFormat.format(Date(eventTimestamp)),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (task.isCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onPrimaryContainer
+                                )
                             }
                             Spacer(Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(dateFormat.format(Date(task.createdTimestamp)), style = MaterialTheme.typography.labelSmall)
-                                Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text(dateFormat.format(Date(eventTimestamp)), style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    text = task.title.ifBlank { "Untitled Task" },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
+                                    color = if (task.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else Color.Unspecified
+                                )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     PriorityBadge(task.priority)
                                     if (task.calendarEventId != null) {
@@ -1133,7 +1142,6 @@ fun CalendarAgendaTab(
                             Checkbox(checked = task.isCompleted, onCheckedChange = { viewModel.toggleTaskCompletion(task) })
                         }
 
-                        // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
                         TaskMetadataStatusRow(task)
                     }
                 }
@@ -1142,6 +1150,9 @@ fun CalendarAgendaTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// GANTT CHART: COMPLETION DATE APPLIED AS FINISHED/DUE DATE BAR EXTENT
+// -----------------------------------------------------------------------------------------
 @Composable
 fun GanttChartTab(
     viewModel: TaskViewModel,
@@ -1165,7 +1176,7 @@ fun GanttChartTab(
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Text("Gantt Chart Timeline", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Task progression with full hierarchy path and expandable dates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        Text("Done tasks show their completion date as the end milestone", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         Spacer(Modifier.height(8.dp))
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -1173,6 +1184,7 @@ fun GanttChartTab(
         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(ganttTasks, key = { it.id }) { task ->
                 val taskStart = task.createdTimestamp
+                // For completed tasks, dueTimestamp acts as the finished date
                 val taskEnd = task.dueTimestamp ?: (taskStart + 86400000L)
 
                 val startFraction = ((taskStart - minTime).toFloat() / totalDuration).coerceIn(0f, 1f)
@@ -1198,8 +1210,21 @@ fun GanttChartTab(
                         }
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                            PriorityBadge(task.priority)
+                            Text(
+                                text = task.title.ifBlank { "Untitled Task" },
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null,
+                                color = if (task.isCompleted) Color(0xFF2E7D32) else Color.Unspecified
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (task.isCompleted) {
+                                    Surface(color = Color(0xFFE8F5E9), shape = RoundedCornerShape(4.dp)) {
+                                        Text("DONE ✓", color = Color(0xFF2E7D32), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                    }
+                                }
+                                PriorityBadge(task.priority)
+                            }
                         }
 
                         Spacer(Modifier.height(4.dp))
@@ -1218,7 +1243,7 @@ fun GanttChartTab(
                                     .padding(start = (startFraction * 260).dp)
                                     .clip(RoundedCornerShape(6.dp))
                                     .background(
-                                        if (task.isCompleted) Color(0xFF43A047)
+                                        if (task.isCompleted) Color(0xFF2E7D32)
                                         else when (task.priority) {
                                             TaskPriority.URGENT -> Color(0xFFD32F2F)
                                             TaskPriority.HIGH -> Color(0xFFF57C00)
@@ -1244,8 +1269,12 @@ fun GanttChartTab(
 
                         AnimatedVisibility(visible = showDetails) {
                             Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("Created Date: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                                Text("Due Date: ${task.dueTimestamp?.let { dateFormat.format(Date(it)) } ?: "None set"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                Text("Started: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                if (task.isCompleted) {
+                                    Text("Done on (Due Date): ${task.dueTimestamp?.let { dateFormat.format(Date(it)) } ?: "Completed"}", style = MaterialTheme.typography.labelSmall, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                                } else {
+                                    Text("Target Due Date: ${task.dueTimestamp?.let { dateFormat.format(Date(it)) } ?: "None set"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                }
                                 if (!task.tags.isNullOrBlank()) {
                                     Text("Tags: #${task.tags.split(",").joinToString(" #")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
@@ -1426,7 +1455,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW
+// REUSABLE TASK TREE ROW (WITH DIRECT STRIKETHROUGH ON SUBTASKS & INSTANT LAYERS)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -1452,20 +1481,16 @@ fun TaskNodeView(
     val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
 
-    var layerLevel by remember { mutableStateOf(1) }
-    var layersBelow by remember { mutableStateOf(0) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val currentLayer = depth + 1
 
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    LaunchedEffect(task.id) {
-        scope.launch {
-            layerLevel = viewModel.getLayerLevel(task.id)
-            layersBelow = viewModel.getDescendantLayersCount(task.id)
-        }
+    var layersBelow by remember { mutableIntStateOf(0) }
+    LaunchedEffect(task.id, subtasks) {
+        layersBelow = viewModel.getDescendantLayersCount(task.id)
     }
 
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     if (showDeleteConfirm) {
@@ -1507,7 +1532,7 @@ fun TaskNodeView(
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = "Layer $layerLevel • $layersBelow below",
+                            text = "Layer $currentLayer • $layersBelow below",
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
@@ -1585,7 +1610,8 @@ fun TaskNodeView(
                             text = task.title.ifBlank { "Untitled Task" },
                             query = searchQuery,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            isStrikethrough = task.isCompleted
                         )
 
                         if (!task.tags.isNullOrBlank()) {
@@ -1601,7 +1627,8 @@ fun TaskNodeView(
                             HighlightedText(
                                 text = task.notes,
                                 query = searchQuery,
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
+                                isStrikethrough = task.isCompleted
                             )
                         }
                     }
@@ -1620,10 +1647,8 @@ fun TaskNodeView(
                     }
                 }
 
-                // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
                 TaskMetadataStatusRow(task)
 
-                // Location Badge on Row
                 if (!task.locationName.isNullOrBlank() || (task.latitude != null && task.longitude != null)) {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
@@ -1661,7 +1686,6 @@ fun TaskNodeView(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // Compact Contact Quick Action Strip (Deduplicated)
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -1900,13 +1924,11 @@ fun SingleTaskEditorView(
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
 
-    // Location State
     var locationName by remember(task.id) { mutableStateOf(task.locationName ?: "") }
     var latitude by remember(task.id) { mutableStateOf(task.latitude) }
     var longitude by remember(task.id) { mutableStateOf(task.longitude) }
     var isResolvingLocation by remember { mutableStateOf(false) }
 
-    // Universal Repeat Parameters
     var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }
     var repeatDaysText by remember(task.id) { mutableStateOf(task.repeatIntervalDays.toString()) }
     var repeatHoursText by remember(task.id) { mutableStateOf(task.repeatIntervalHours.toString()) }
@@ -1928,7 +1950,6 @@ fun SingleTaskEditorView(
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
 
-    // Direct Single-Attempt Place Resolver
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
@@ -1952,7 +1973,6 @@ fun SingleTaskEditorView(
                         locationName = place
                         isResolvingLocation = false
 
-                        // Automatically persist changes to Room database immediately
                         viewModel.saveTask(
                             task = task,
                             title = title,
@@ -2086,7 +2106,6 @@ fun SingleTaskEditorView(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // TOP CONTROL STRIP (SHARE, SAVE)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -2253,7 +2272,6 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // SCHEDULED / CREATED TIME PICKER
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
@@ -2289,7 +2307,6 @@ fun SingleTaskEditorView(
             }
         }
 
-        // PRIORITY SELECTION
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Priority Level:", fontWeight = FontWeight.SemiBold)
             Row(
@@ -2333,13 +2350,11 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // SCHEDULE, DUE DATES & RECURRENCE (WITH CLEAR / CANCEL BUTTONS)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Schedule & Due Dates", fontWeight = FontWeight.Bold)
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Reminder Picker + Clear
                     Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(
                             onClick = {
@@ -2362,7 +2377,6 @@ fun SingleTaskEditorView(
                         }
                     }
 
-                    // Due Date Picker + Clear
                     Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(
                             onClick = {
