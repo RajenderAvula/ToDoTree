@@ -1452,7 +1452,7 @@ fun TaskNodeView(
     val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
 // 1. Zero-latency: current layer is purely derived from recursive tree depth
-    val currentLayer = depth + 1
+    val layerLevel = depth + 1
 
     // 2. Re-evaluates whenever subtasks list changes (add/delete/indent)
     var layersBelow by remember { mutableIntStateOf(0) }
