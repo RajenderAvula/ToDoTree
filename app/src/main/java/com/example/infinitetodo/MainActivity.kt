@@ -63,6 +63,12 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
+// Universal Date/Time Formatters available across all Composables
+val fullDateTimeFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+val shortDateFormat: SimpleDateFormat = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())
+val dateOnlyFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+val timeOnlyFormat: SimpleDateFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+
 enum class AppNavTab(val title: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
     TASKS("Tasks", Icons.Default.AccountTree),
@@ -409,23 +415,22 @@ fun ContactActionRow(
     }
 }
 
-
+// -----------------------------------------------------------------------------------------
+// REUSABLE TASK STATUS ROW (COMPLETION, REMINDER, DUE DATE, RECURRENCE REFLECTION CHIPS)
+// -----------------------------------------------------------------------------------------
 @Composable
-fun TaskMetadataStatusRow(
-    task: TaskItem,
-    modifier: Modifier = Modifier
-) {
-    val dateTimeFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
+fun TaskMetadataStatusRow(task: TaskItem) {
+    val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     Row(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
             .padding(top = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 1. Completion Status Badge (Struck off / Done)
+        // 1. Completion Timestamp Badge (Reflected whenever completed / struck off)
         if (task.isCompleted) {
             val doneDate = task.completedTimestamp ?: task.lastModifiedTimestamp
             Surface(
@@ -444,7 +449,7 @@ fun TaskMetadataStatusRow(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = "Completed: ${dateTimeFormat.format(Date(doneDate))}",
+                        text = "Completed: ${dateFormat.format(Date(doneDate))}",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF2E7D32),
                         fontWeight = FontWeight.Bold
@@ -452,7 +457,7 @@ fun TaskMetadataStatusRow(
                 }
             }
         } else {
-            // 2. Due Date Badge (with Overdue styling)
+            // 2. Due Date Badge
             task.dueTimestamp?.let { due ->
                 val isOverdue = due < System.currentTimeMillis()
                 Surface(
@@ -460,7 +465,7 @@ fun TaskMetadataStatusRow(
                     shape = RoundedCornerShape(4.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -469,9 +474,9 @@ fun TaskMetadataStatusRow(
                             modifier = Modifier.size(12.dp),
                             tint = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(3.dp))
                         Text(
-                            text = "Due: ${dateTimeFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}",
+                            text = "Due: ${dateFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = if (isOverdue) FontWeight.Bold else FontWeight.Normal
@@ -482,128 +487,46 @@ fun TaskMetadataStatusRow(
         }
 
         // 3. Reminder Badge
-        task.reminderTimestamp?.let { reminder ->
+        task.reminderTimestamp?.let { rem ->
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(4.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Alarm,
-                        contentDescription = "Reminder",
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = "Remind: ${dateTimeFormat.format(Date(reminder))}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(3.dp))
+                    Text("Remind: ${dateFormat.format(Date(rem))}", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
 
-        // 4. Repeat Rule Badge
+        // 4. Recurrence Badge
         if (task.repeatRule != RecurrenceRule.NONE) {
             Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(4.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Repeat,
-                        contentDescription = "Repeat",
-                        modifier = Modifier.size(12.dp),
-                        tint = MaterialTheme.colorScheme.secondary
-                    )
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                    Spacer(Modifier.width(3.dp))
                     Text(
                         text = when (task.repeatRule) {
-                            RecurrenceRule.DAILY -> "Daily"
-                            RecurrenceRule.WEEKLY -> "Weekly"
-                            RecurrenceRule.FORTNIGHTLY -> "Fortnightly"
-                            RecurrenceRule.MONTHLY -> "Monthly"
-                            RecurrenceRule.SIX_MONTHLY -> "Six-Monthly"
-                            RecurrenceRule.YEARLY -> "Yearly"
                             RecurrenceRule.CUSTOM -> "Every ${task.repeatIntervalDays}d ${task.repeatIntervalHours}h ${task.repeatIntervalMinutes}m"
-                            RecurrenceRule.NONE -> ""
+                            else -> task.repeatRule.name
                         },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        style = MaterialTheme.typography.labelSmall
                     )
                 }
             }
         }
     }
 }
-// -----------------------------------------------------------------------------------------
-// REUSABLE TASK STATUS ROW (REMINDER, DUE DATE, RECURRENCE REFLECTION CHIPS)
-// -----------------------------------------------------------------------------------------
-/*@Composable
-fun TaskMetadataStatusRow(task: TaskItem) {
-    val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
-
-    if (task.reminderTimestamp != null || task.dueTimestamp != null || task.repeatRule != RecurrenceRule.NONE) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            task.reminderTimestamp?.let { rem ->
-                Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f), shape = RoundedCornerShape(4.dp)) {
-                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(3.dp))
-                        Text("Remind: ${dateFormat.format(Date(rem))}", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
-
-            task.dueTimestamp?.let { due ->
-                val isOverdue = due < System.currentTimeMillis() && !task.isCompleted
-                Surface(
-                    color = if (isOverdue) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Event, contentDescription = null, modifier = Modifier.size(12.dp), tint = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline)
-                        Spacer(Modifier.width(3.dp))
-                        Text(
-                            "Due: ${dateFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-
-            if (task.repeatRule != RecurrenceRule.NONE) {
-                Surface(color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f), shape = RoundedCornerShape(4.dp)) {
-                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
-                        Spacer(Modifier.width(3.dp))
-                        Text(
-                            text = when (task.repeatRule) {
-                                RecurrenceRule.CUSTOM -> "Every ${task.repeatIntervalDays}d ${task.repeatIntervalHours}h ${task.repeatIntervalMinutes}m"
-                                else -> task.repeatRule.name
-                            },
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                }
-            }
-        }
-    }
-}*/
 
 @Composable
 fun DeleteConfirmationDialog(
@@ -1011,7 +934,9 @@ fun HomeDashboardTab(
                                 HighlightedText(
                                     text = task.title.ifBlank { "Untitled Task" },
                                     query = searchQuery,
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                                    ),
                                     fontWeight = FontWeight.SemiBold
                                 )
 
@@ -1040,7 +965,7 @@ fun HomeDashboardTab(
                             }
                         }
 
-                        // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
+                        // REMINDER / DUE / REPEAT / COMPLETION STATUS CHIPS
                         TaskMetadataStatusRow(task)
 
                         // Location Display
@@ -1181,11 +1106,7 @@ fun CalendarAgendaTab(
     val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("EEE, dd MMM yyyy", Locale.getDefault()) }
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-val eventTimestamp = if (task.isCompleted) {
-    task.completedTimestamp ?: task.lastModifiedTimestamp
-} else {
-    task.dueTimestamp ?: task.createdTimestamp
-}
+
     var searchQuery by remember { mutableStateOf("") }
     val filterState by viewModel.filterState.collectAsState()
 
@@ -1199,7 +1120,9 @@ val eventTimestamp = if (task.isCompleted) {
             (filterState.selectedLocations.isEmpty() || (task.locationName != null && task.locationName in filterState.selectedLocations)) &&
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
-        }.sortedBy { it.createdTimestamp }
+        }.sortedBy { task ->
+            if (task.isCompleted) task.completedTimestamp ?: task.lastModifiedTimestamp else task.createdTimestamp
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1230,6 +1153,12 @@ val eventTimestamp = if (task.isCompleted) {
                     scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
                 }
 
+                val primaryTimestamp = if (task.isCompleted) {
+                    task.completedTimestamp ?: task.lastModifiedTimestamp
+                } else {
+                    task.dueTimestamp ?: task.createdTimestamp
+                }
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1251,16 +1180,28 @@ val eventTimestamp = if (task.isCompleted) {
                             Column(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .background(
+                                        if (task.isCompleted) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.primaryContainer
+                                    )
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(timeFormat.format(Date(task.createdTimestamp)), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text(
+                                    text = timeFormat.format(Date(primaryTimestamp)),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (task.isCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onPrimaryContainer
+                                )
                             }
                             Spacer(Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(dateFormat.format(Date(task.createdTimestamp)), style = MaterialTheme.typography.labelSmall)
-                                Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text(dateFormat.format(Date(primaryTimestamp)), style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    text = task.title.ifBlank { "Untitled Task" },
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                                    ),
+                                    fontWeight = FontWeight.SemiBold
+                                )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     PriorityBadge(task.priority)
                                     if (task.calendarEventId != null) {
@@ -1271,7 +1212,7 @@ val eventTimestamp = if (task.isCompleted) {
                             Checkbox(checked = task.isCompleted, onCheckedChange = { viewModel.toggleTaskCompletion(task) })
                         }
 
-                        // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
+                        // REMINDER / DUE / REPEAT / COMPLETION STATUS CHIPS
                         TaskMetadataStatusRow(task)
                     }
                 }
@@ -1287,12 +1228,7 @@ fun GanttChartTab(
 ) {
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
-val taskStart = task.createdTimestamp
-val taskEnd = if (task.isCompleted) {
-    task.completedTimestamp ?: task.lastModifiedTimestamp
-} else {
-    task.dueTimestamp ?: (taskStart + 86400000L)
-}
+
     val ganttTasks = remember(allTasks) {
         allTasks.sortedBy { it.createdTimestamp }
     }
@@ -1301,14 +1237,15 @@ val taskEnd = if (task.isCompleted) {
         ganttTasks.minOfOrNull { it.createdTimestamp } ?: System.currentTimeMillis()
     }
     val maxTime = remember(ganttTasks) {
-        (ganttTasks.mapNotNull { it.dueTimestamp }.maxOrNull() ?: (System.currentTimeMillis() + 7 * 86400000L))
+        (ganttTasks.mapNotNull { if (it.isCompleted) it.completedTimestamp ?: it.lastModifiedTimestamp else it.dueTimestamp }.maxOrNull()
+            ?: (System.currentTimeMillis() + 7 * 86400000L))
             .coerceAtLeast(minTime + 86400000L)
     }
     val totalDuration = (maxTime - minTime).coerceAtLeast(1L)
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Text("Gantt Chart Timeline", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Task progression with full hierarchy path and expandable dates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        Text("Task progression with full hierarchy path, completion markers and expandable dates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         Spacer(Modifier.height(8.dp))
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -1316,7 +1253,11 @@ val taskEnd = if (task.isCompleted) {
         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(ganttTasks, key = { it.id }) { task ->
                 val taskStart = task.createdTimestamp
-                val taskEnd = task.dueTimestamp ?: (taskStart + 86400000L)
+                val taskEnd = if (task.isCompleted) {
+                    task.completedTimestamp ?: task.lastModifiedTimestamp
+                } else {
+                    task.dueTimestamp ?: (taskStart + 86400000L)
+                }
 
                 val startFraction = ((taskStart - minTime).toFloat() / totalDuration).coerceIn(0f, 1f)
                 val spanFraction = ((taskEnd - taskStart).toFloat() / totalDuration).coerceIn(0.08f, 1f - startFraction)
@@ -1341,7 +1282,13 @@ val taskEnd = if (task.isCompleted) {
                         }
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = task.title.ifBlank { "Untitled Task" },
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                                ),
+                                fontWeight = FontWeight.SemiBold
+                            )
                             PriorityBadge(task.priority)
                         }
 
@@ -1388,6 +1335,15 @@ val taskEnd = if (task.isCompleted) {
                         AnimatedVisibility(visible = showDetails) {
                             Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text("Created Date: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                if (task.isCompleted) {
+                                    val completedAt = task.completedTimestamp ?: task.lastModifiedTimestamp
+                                    Text(
+                                        text = "Completed Date: ${dateFormat.format(Date(completedAt))}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFF2E7D32),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                                 Text("Due Date: ${task.dueTimestamp?.let { dateFormat.format(Date(it)) } ?: "None set"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                 if (!task.tags.isNullOrBlank()) {
                                     Text("Tags: #${task.tags.split(",").joinToString(" #")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
@@ -1594,28 +1550,16 @@ fun TaskNodeView(
     val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
     val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
-// 1. Zero-latency: current layer is purely derived from recursive tree depth
+
     val layerLevel = depth + 1
 
-    // 2. Re-evaluates whenever subtasks list changes (add/delete/indent)
     var layersBelow by remember { mutableIntStateOf(0) }
     LaunchedEffect(task.id, subtasks) {
         layersBelow = viewModel.getDescendantLayersCount(task.id)
     }
-    /*var layerLevel by remember { mutableStateOf(1) }*/
-   /*var layersBelow by remember { mutableStateOf(0) }*/
+
     var showDeleteConfirm by remember { mutableStateOf(false) }
-
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
-
-    LaunchedEffect(task.id) {
-        scope.launch {
-           /* layerLevel = viewModel.getLayerLevel(task.id)*/
-            layersBelow = viewModel.getDescendantLayersCount(task.id)
-        }
-    }
-
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     if (showDeleteConfirm) {
@@ -1734,7 +1678,9 @@ fun TaskNodeView(
                         HighlightedText(
                             text = task.title.ifBlank { "Untitled Task" },
                             query = searchQuery,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                            ),
                             fontWeight = FontWeight.SemiBold
                         )
 
@@ -1770,7 +1716,7 @@ fun TaskNodeView(
                     }
                 }
 
-                // REMINDER / DUE / REPEAT METADATA STATUS CHIPS
+                // REMINDER / DUE / REPEAT / COMPLETION STATUS CHIPS
                 TaskMetadataStatusRow(task)
 
                 // Location Badge on Row
@@ -1808,6 +1754,10 @@ fun TaskNodeView(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text("Created: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    if (task.isCompleted) {
+                        val doneTime = task.completedTimestamp ?: task.lastModifiedTimestamp
+                        Text("Completed: ${dateFormat.format(Date(doneTime))}", style = MaterialTheme.typography.labelSmall, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    }
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
@@ -2035,19 +1985,10 @@ fun SingleTaskEditorView(
     viewModel: TaskViewModel,
     onOpenReferencedCrossTab: (TaskItem) -> Unit
 ) {
-    if (task.isCompleted && task.completedTimestamp != null) {
-    Text(
-        text = "Completed: ${fullDateTimeFormat.format(Date(task.completedTimestamp))}",
-        style = MaterialTheme.typography.labelMedium,
-        color = Color(0xFF2E7D32),
-        fontWeight = FontWeight.Bold
-    )
-    }
     val context = LocalContext.current
     val audioHelper = remember { AudioRecorderHelper(context) }
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
     val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
-    val fullDateTimeFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
     val scope = rememberCoroutineScope()
 
     var title by remember(task.id) { mutableStateOf(task.title) }
@@ -2086,7 +2027,6 @@ fun SingleTaskEditorView(
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
 
-    // Direct Single-Attempt Place Resolver
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
@@ -2110,7 +2050,6 @@ fun SingleTaskEditorView(
                         locationName = place
                         isResolvingLocation = false
 
-                        // Automatically persist changes to Room database immediately
                         viewModel.saveTask(
                             task = task,
                             title = title,
@@ -2300,6 +2239,30 @@ fun SingleTaskEditorView(
                 Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("Save")
+            }
+        }
+
+        // Completion Status Banner
+        if (task.isCompleted) {
+            val doneDate = task.completedTimestamp ?: task.lastModifiedTimestamp
+            Surface(
+                color = Color(0xFFE8F5E9),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Task Completed: ${fullDateTimeFormat.format(Date(doneDate))}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
