@@ -2,12 +2,19 @@ package com.example.infinitetodo
 
 import android.content.Context
 import android.content.Intent
+import android.location.Address
+import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
+import java.util.Locale
+import java.util.concurrent.Executors
 
 object LocationAndContactHelper {
 
@@ -67,19 +74,6 @@ object LocationAndContactHelper {
         }
     }
 
-    fun launchEmail(context: Context, email: String) {
-        try {
-            val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$email"))
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            Toast.makeText(context, "No email client found", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    /**
-     * Universal App Chooser: Opens system sharesheet allowing any messaging or communication
-     * app (Viber, Signal, Skype, Teams, Slack, Messages, etc.) to handle the contact info.
-     */
     fun openAllAppsContactMenu(context: Context, name: String, rawPhone: String) {
         try {
             val sendIntent = Intent(Intent.ACTION_SEND).apply {
@@ -112,6 +106,78 @@ object LocationAndContactHelper {
         }
     }
 
+    /**
+     * Converts Latitude and Longitude to a readable Place / Landmark Name
+     */
+    fun fetchPlaceName(
+        context: Context,
+        latitude: Double,
+        longitude: Double,
+        onResolved: (String) -> Unit
+    ) {
+        val geocoder = Geocoder(context, Locale.getDefault())
+        val mainHandler = Handler(Looper.getMainLooper())
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            geocoder.getFromLocation(latitude, longitude, 1, object : Geocoder.GeocodeListener {
+                override fun onGeocode(addresses: MutableList<Address>) {
+                    val place = formatAddress(addresses.firstOrNull(), latitude, longitude)
+                    mainHandler.post { onResolved(place) }
+                }
+
+                override fun onError(errorMessage: String?) {
+                    mainHandler.post {
+                        onResolved("Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})")
+                    }
+                }
+            })
+        } else {
+            Executors.newSingleThreadExecutor().execute {
+                try {
+                    @Suppress("DEPRECATION")
+                    val addresses = geocoder.getFromLocation(latitude, longitude, 1)
+                    val place = formatAddress(addresses?.firstOrNull(), latitude, longitude)
+                    mainHandler.post { onResolved(place) }
+                } catch (_: Exception) {
+                    mainHandler.post {
+                        onResolved("Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun formatAddress(address: Address?, latitude: Double, longitude: Double): String {
+        if (address == null) {
+            return "Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})"
+        }
+
+        // Prioritize feature/locality (e.g. "Hitech City, Hyderabad" or "Empire State Building")
+        val parts = mutableListOf<String>()
+        val feature = address.featureName
+        val subLocality = address.subLocality
+        val locality = address.locality
+        val adminArea = address.adminArea
+
+        if (!feature.isNullOrBlank() && feature != subLocality && feature != locality) {
+            parts.add(feature)
+        }
+        if (!subLocality.isNullOrBlank()) {
+            parts.add(subLocality)
+        }
+        if (!locality.isNullOrBlank() && locality != subLocality) {
+            parts.add(locality)
+        } else if (!adminArea.isNullOrBlank()) {
+            parts.add(adminArea)
+        }
+
+        return if (parts.isNotEmpty()) {
+            parts.joinToString(", ")
+        } else {
+            address.getAddressLine(0) ?: "Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})"
+        }
+    }
+
     fun requestFreshLocation(
         context: Context,
         onLocationFound: (Location) -> Unit,
@@ -135,7 +201,7 @@ object LocationAndContactHelper {
             val cached = (if (hasGps) locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) else null)
                 ?: (if (hasNetwork) locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) else null)
 
-            if (cached != null && (System.currentTimeMillis() - cached.time) < 120000L) {
+            if (cached != null && (System.currentTimeMillis() - cached.time) < 60000L) {
                 onLocationFound(cached)
                 return
             }
@@ -157,9 +223,9 @@ object LocationAndContactHelper {
             if (cached != null) {
                 onLocationFound(cached)
             }
-        } catch (e: SecurityException) {
+        } catch (_: SecurityException) {
             onError("Location permission required")
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             onError("Unable to acquire GPS fix")
         }
     }
