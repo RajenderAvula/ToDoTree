@@ -118,8 +118,8 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId IS NULL ORDER BY orderIndex ASC, id DESC")
     fun getRootTasks(): Flow<List<TaskItem>>
 
-    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY orderIndex ASC, id ASC")
-    fun getSubtasks(parentId: Long): Flow<List<TaskItem>>
+    /*@Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY orderIndex ASC, id ASC")
+    fun getSubtasks(parentId: Long): Flow<List<TaskItem>>*/
 
     // ADD THIS QUERY: Allows synchronous retrieval for background recursive deletion
     @Query("SELECT * FROM tasks WHERE parentId = :parentId")
