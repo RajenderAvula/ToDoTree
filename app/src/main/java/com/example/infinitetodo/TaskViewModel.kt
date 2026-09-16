@@ -435,7 +435,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleTaskCompletion(task: TaskItem) {
+    /*fun toggleTaskCompletion(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             val updated = task.copy(
@@ -445,6 +445,39 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             dao.updateTask(updated)
             syncTaskToCalendar(updated)
         }
+    }*/
+    // 1. Update toggleTaskCompletion to find and update all descendants
+    fun toggleTaskCompletion(task: TaskItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val newCompletionState = !task.isCompleted
+            val now = System.currentTimeMillis()
+            val completedTime = if (newCompletionState) now else null
+
+            // Fetch all nested subtasks under this task recursively
+            val allDescendants = getAllDescendants(task.id)
+            val allTasksToUpdate = listOf(task) + allDescendants
+
+            for (item in allTasksToUpdate) {
+                val updated = item.copy(
+                    isCompleted = newCompletionState,
+                    completedTimestamp = completedTime,
+                    lastModifiedTimestamp = now
+                )
+                dao.updateTask(updated)
+                syncTaskToCalendar(updated)
+            }
+        }
+    }
+
+    // 2. Add this helper function inside TaskViewModel
+    private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
+        val result = mutableListOf<TaskItem>()
+        val directChildren = dao.getSubtasksSync(parentId)
+        for (child in directChildren) {
+            result.add(child)
+            result.addAll(getAllDescendants(child.id))
+        }
+        return result
     }
 /**
      * Recursively deletes the main task and every nested child from:
