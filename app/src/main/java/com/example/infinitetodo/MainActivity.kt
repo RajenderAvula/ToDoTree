@@ -262,7 +262,7 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
-// COMPACT CONTACT QUICK ACTION STRIP (CALL, SMS, WHATSAPP, TELEGRAM & ALL APPS)
+// COMPACT CONTACT QUICK ACTION STRIP (DEDUPLICATED SINGLE-SOURCE DISPLAY)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
@@ -291,7 +291,7 @@ fun ContactActionRow(
             )
             Spacer(Modifier.width(6.dp))
 
-            Column {
+            Column(modifier = Modifier.widthIn(max = 140.dp)) {
                 Text(
                     text = displayName,
                     style = MaterialTheme.typography.bodySmall,
@@ -302,11 +302,13 @@ fun ContactActionRow(
                 Text(
                     text = phoneNumber,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(8.dp))
 
             // Call Action
             FilledTonalIconButton(
@@ -401,6 +403,68 @@ fun ContactActionRow(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
                     )
+                }
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// REUSABLE TASK STATUS ROW (REMINDER, DUE DATE, RECURRENCE REFLECTION CHIPS)
+// -----------------------------------------------------------------------------------------
+@Composable
+fun TaskMetadataStatusRow(task: TaskItem) {
+    val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
+
+    if (task.reminderTimestamp != null || task.dueTimestamp != null || task.repeatRule != RecurrenceRule.NONE) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            task.reminderTimestamp?.let { rem ->
+                Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f), shape = RoundedCornerShape(4.dp)) {
+                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(3.dp))
+                        Text("Remind: ${dateFormat.format(Date(rem))}", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+
+            task.dueTimestamp?.let { due ->
+                val isOverdue = due < System.currentTimeMillis() && !task.isCompleted
+                Surface(
+                    color = if (isOverdue) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Event, contentDescription = null, modifier = Modifier.size(12.dp), tint = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline)
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            "Due: ${dateFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            if (task.repeatRule != RecurrenceRule.NONE) {
+                Surface(color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f), shape = RoundedCornerShape(4.dp)) {
+                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            text = when (task.repeatRule) {
+                                RecurrenceRule.CUSTOM -> "Every ${task.repeatIntervalDays}d ${task.repeatIntervalHours}h ${task.repeatIntervalMinutes}m"
+                                else -> task.repeatRule.name
+                            },
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 }
             }
         }
@@ -843,7 +907,25 @@ fun HomeDashboardTab(
                             }
                         }
 
-                        // Compact Contact Action Strip
+                        // REMINDER / DUE / REPEAT METADATA ROW
+                        TaskMetadataStatusRow(task)
+
+                        // Location Display
+                        if (!task.locationName.isNullOrBlank()) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                Row(modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(12.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(task.locationName, style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                        }
+
+                        // Compact Contact Action Strip (Deduplicated)
                         if (contacts.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
@@ -1051,6 +1133,9 @@ fun CalendarAgendaTab(
                             }
                             Checkbox(checked = task.isCompleted, onCheckedChange = { viewModel.toggleTaskCompletion(task) })
                         }
+
+                        // REMINDER / DUE / REPEAT METADATA ROW
+                        TaskMetadataStatusRow(task)
                     }
                 }
             }
@@ -1237,10 +1322,9 @@ fun SettingsManagerTab(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Backup & Restore Data", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
-                // 1. Direct Cloud / Google Drive Export via SAF
                 Button(
-                    onClick = { 
-                        createBackupLauncher.launch("ToDoTree_CloudBackup_${System.currentTimeMillis()}.zip") 
+                    onClick = {
+                        createBackupLauncher.launch("ToDoTree_CloudBackup_${System.currentTimeMillis()}.zip")
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
@@ -1250,7 +1334,6 @@ fun SettingsManagerTab(
                     Text("Backup to Cloud (Google Drive / Storage)")
                 }
 
-                // 2. Email Backup
                 OutlinedButton(
                     onClick = {
                         viewModel.sendBackupViaMail { intent ->
@@ -1270,10 +1353,9 @@ fun SettingsManagerTab(
 
                 HorizontalDivider()
 
-                // 3. Restore from Cloud / Device
                 Button(
-                    onClick = { 
-                        restoreBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) 
+                    onClick = {
+                        restoreBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                     modifier = Modifier.fillMaxWidth()
@@ -1345,7 +1427,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW (WITH LOCATION DISPLAY & QUICK CONTACTS ACTIONS)
+// REUSABLE TASK TREE ROW
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -1539,7 +1621,10 @@ fun TaskNodeView(
                     }
                 }
 
-                // Location Badge on Row (Direct click launches Map)
+                // REMINDER / DUE / REPEAT METADATA ROW
+                TaskMetadataStatusRow(task)
+
+                // Location Badge on Row
                 if (!task.locationName.isNullOrBlank() || (task.latitude != null && task.longitude != null)) {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
@@ -1577,7 +1662,7 @@ fun TaskNodeView(
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
-                // Compact Contact Quick Action Strip (Call, Text, WhatsApp, All Apps)
+                // Compact Contact Quick Action Strip (Deduplicated)
                 if (contacts.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -1792,7 +1877,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (REVERSE GEOCODING PLACE NAME RETRIEVAL & ALL CONTROLS)
+// SINGLE TASK EDITOR VIEW (CANCEL DUE/REMINDER/REPEAT & DEDUPLICATED CONTACTS)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1816,7 +1901,7 @@ fun SingleTaskEditorView(
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
 
-    // Location State & Reverse Geocoder Status
+    // Location State
     var locationName by remember(task.id) { mutableStateOf(task.locationName ?: "") }
     var latitude by remember(task.id) { mutableStateOf(task.latitude) }
     var longitude by remember(task.id) { mutableStateOf(task.longitude) }
@@ -1856,7 +1941,6 @@ fun SingleTaskEditorView(
                     latitude = loc.latitude
                     longitude = loc.longitude
 
-                    // Reverse geocodes coordinates to a human-readable place / landmark / street name
                     LocationAndContactHelper.fetchPlaceName(context, loc.latitude, loc.longitude) { resolvedPlaceName ->
                         locationName = resolvedPlaceName
                         isResolvingLocation = false
@@ -2072,7 +2156,7 @@ fun SingleTaskEditorView(
                             if (isResolvingLocation) {
                                 CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
                                 Spacer(Modifier.width(6.dp))
-                                Text("Fetching place...", style = MaterialTheme.typography.labelSmall)
+                                Text("Finding place...", style = MaterialTheme.typography.labelSmall)
                             } else {
                                 Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(Modifier.width(4.dp))
@@ -2106,7 +2190,18 @@ fun SingleTaskEditorView(
                     label = { Text("Location Name / Place") },
                     placeholder = { Text("e.g. Office, Starbucks, Campus Hall B") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        if (locationName.isNotEmpty() || latitude != null) {
+                            IconButton(onClick = {
+                                locationName = ""
+                                latitude = null
+                                longitude = null
+                            }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear Location")
+                            }
+                        }
+                    }
                 )
 
                 if (latitude != null && longitude != null) {
@@ -2208,46 +2303,78 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // SCHEDULE, DUE DATES & RECURRENCE
+        // SCHEDULE, DUE DATES & RECURRENCE (WITH CLEAR / CANCEL BUTTONS)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Schedule & Due Dates", fontWeight = FontWeight.Bold)
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = {
-                            val cal = Calendar.getInstance()
-                            DatePickerDialog(context, { _, y, m, d ->
-                                TimePickerDialog(context, { _, h, min ->
-                                    cal.set(y, m, d, h, min)
-                                    reminderMs = cal.timeInMillis
-                                }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
-                            }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(reminderMs?.let { "Remind: ${dateFormat.format(Date(it))}" } ?: "Set Reminder")
+                    // Reminder Picker + Clear
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = {
+                                val cal = Calendar.getInstance()
+                                DatePickerDialog(context, { _, y, m, d ->
+                                    TimePickerDialog(context, { _, h, min ->
+                                        cal.set(y, m, d, h, min)
+                                        reminderMs = cal.timeInMillis
+                                    }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
+                                }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(reminderMs?.let { "Remind: ${dateFormat.format(Date(it))}" } ?: "Set Reminder", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (reminderMs != null) {
+                            IconButton(onClick = { reminderMs = null }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Clear, contentDescription = "Cancel Reminder", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
 
-                    OutlinedButton(
-                        onClick = {
-                            val cal = Calendar.getInstance()
-                            DatePickerDialog(context, { _, y, m, d ->
-                                TimePickerDialog(context, { _, h, min ->
-                                    cal.set(y, m, d, h, min)
-                                    dueMs = cal.timeInMillis
-                                }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
-                            }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(dueMs?.let { "Due: ${dateFormat.format(Date(it))}" } ?: "Set Due Date")
+                    // Due Date Picker + Clear
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = {
+                                val cal = Calendar.getInstance()
+                                DatePickerDialog(context, { _, y, m, d ->
+                                    TimePickerDialog(context, { _, h, min ->
+                                        cal.set(y, m, d, h, min)
+                                        dueMs = cal.timeInMillis
+                                    }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
+                                }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(dueMs?.let { "Due: ${dateFormat.format(Date(it))}" } ?: "Set Due Date", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (dueMs != null) {
+                            IconButton(onClick = { dueMs = null }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Clear, contentDescription = "Cancel Due Date", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
                 }
 
                 HorizontalDivider()
 
-                Text("Repeat Configuration", fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Repeat Configuration", fontWeight = FontWeight.Bold)
+                    if (repeatRule != RecurrenceRule.NONE) {
+                        TextButton(onClick = {
+                            repeatRule = RecurrenceRule.NONE
+                            repeatDaysText = "0"
+                            repeatHoursText = "0"
+                            repeatMinutesText = "0"
+                        }) {
+                            Text("Cancel Repeat", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
 
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -2269,6 +2396,7 @@ fun SingleTaskEditorView(
                             onClick = {
                                 repeatRule = rule
                                 when (rule) {
+                                    RecurrenceRule.NONE -> { repeatDaysText = "0"; repeatHoursText = "0"; repeatMinutesText = "0" }
                                     RecurrenceRule.DAILY -> { repeatDaysText = "1"; repeatHoursText = "0"; repeatMinutesText = "0" }
                                     RecurrenceRule.WEEKLY -> { repeatDaysText = "7"; repeatHoursText = "0"; repeatMinutesText = "0" }
                                     RecurrenceRule.FORTNIGHTLY -> { repeatDaysText = "14"; repeatHoursText = "0"; repeatMinutesText = "0" }
@@ -2483,7 +2611,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // CHECKLISTS (FULL SCREEN BREADTH: 2-TIER HORIZONTAL LAYOUT)
+        // CHECKLISTS
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
@@ -2622,7 +2750,7 @@ fun SingleTaskEditorView(
             }
         }
 
-        // ATTACHMENTS & CONTACTS (WITH COMPACT 1-TAP ACTION STRIPS)
+        // ATTACHMENTS & CONTACTS
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
@@ -2716,64 +2844,6 @@ fun SingleTaskEditorView(
                                 .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                setDataAndType(Uri.parse(att.uriString), "*/*")
-                                                flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (_: Exception) {
-                                            Toast.makeText(context, "Cannot preview file", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = when (att.type) {
-                                        AttachmentType.VIDEO -> Icons.Default.Videocam
-                                        AttachmentType.AUDIO -> Icons.Default.Mic
-                                        AttachmentType.CONTACT -> Icons.Default.Person
-                                        AttachmentType.IMAGE -> Icons.Default.Image
-                                        AttachmentType.FILE -> Icons.Default.AttachFile
-                                    },
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(26.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = att.displayName,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    att.contactPhone?.let {
-                                        Text(
-                                            text = "Phone: $it",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-
-                                if (att.type == AttachmentType.CONTACT) {
-                                    FilterChip(
-                                        selected = !att.isContactPending,
-                                        onClick = {
-                                            viewModel.updateAttachment(att, att.displayName, att.notes, att.contactPhone, !att.isContactPending)
-                                        },
-                                        label = { Text(if (att.isContactPending) "Pending" else "Done") }
-                                    )
-                                }
-                            }
-
-                            // If Contact, Display Call, Text, WhatsApp & All Apps Options
                             if (att.type == AttachmentType.CONTACT && !att.contactPhone.isNullOrBlank()) {
                                 ContactActionRow(
                                     displayName = att.displayName,
@@ -2789,9 +2859,48 @@ fun SingleTaskEditorView(
                                         )
                                     }
                                 )
+                            } else {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(Uri.parse(att.uriString), "*/*")
+                                                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "Cannot preview file", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = when (att.type) {
+                                            AttachmentType.VIDEO -> Icons.Default.Videocam
+                                            AttachmentType.AUDIO -> Icons.Default.Mic
+                                            AttachmentType.CONTACT -> Icons.Default.Person
+                                            AttachmentType.IMAGE -> Icons.Default.Image
+                                            AttachmentType.FILE -> Icons.Default.AttachFile
+                                        },
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = att.displayName,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                             }
 
-                            // TIER 2: Timestamps & Action Buttons
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
