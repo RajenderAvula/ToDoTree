@@ -143,11 +143,17 @@ interface TaskDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: TaskItem): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllTasks(tasks: List<TaskItem>): List<Long>
+
     @Update
     suspend fun updateTask(task: TaskItem)
 
     @Delete
     suspend fun deleteTask(task: TaskItem)
+
+    @Query("DELETE FROM tasks")
+    suspend fun clearAllTasks()
 
     // Checklists
     @Query("SELECT * FROM checklists WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
@@ -156,8 +162,14 @@ interface TaskDao {
     @Query("SELECT * FROM checklists WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
 
+    @Query("SELECT * FROM checklists")
+    suspend fun getAllChecklistSnapshot(): List<ChecklistItem>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItem(item: ChecklistItem): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllChecklistItems(items: List<ChecklistItem>): List<Long>
 
     @Update
     suspend fun updateChecklistItem(item: ChecklistItem)
@@ -172,8 +184,14 @@ interface TaskDao {
     @Query("SELECT * FROM attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getAttachmentsSnapshot(taskId: Long): List<RichAttachment>
 
+    @Query("SELECT * FROM attachments")
+    suspend fun getAllAttachmentsSnapshot(): List<RichAttachment>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttachment(attachment: RichAttachment): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAllAttachments(attachments: List<RichAttachment>): List<Long>
 
     @Update
     suspend fun updateAttachment(attachment: RichAttachment)
