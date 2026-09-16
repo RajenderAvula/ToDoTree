@@ -1792,7 +1792,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (LOCATION, SHARING, SCHEDULE, CHECKLISTS, ATTACHMENTS)
+// SINGLE TASK EDITOR VIEW (REVERSE GEOCODING PLACE NAME RETRIEVAL & ALL CONTROLS)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1816,10 +1816,11 @@ fun SingleTaskEditorView(
     var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
     var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
 
-    // Location State
+    // Location State & Reverse Geocoder Status
     var locationName by remember(task.id) { mutableStateOf(task.locationName ?: "") }
     var latitude by remember(task.id) { mutableStateOf(task.latitude) }
     var longitude by remember(task.id) { mutableStateOf(task.longitude) }
+    var isResolvingLocation by remember { mutableStateOf(false) }
 
     // Universal Repeat Parameters
     var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }
@@ -1843,22 +1844,29 @@ fun SingleTaskEditorView(
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
 
-    // Location Permission Launcher
+    // Location Permission & Reverse Geocoding Trigger
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
         if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+            isResolvingLocation = true
             LocationAndContactHelper.requestFreshLocation(
                 context = context,
                 onLocationFound = { loc ->
                     latitude = loc.latitude
                     longitude = loc.longitude
-                    if (locationName.isBlank()) {
-                        locationName = "Location (${String.format("%.4f", loc.latitude)}, ${String.format("%.4f", loc.longitude)})"
+
+                    // Reverse geocodes coordinates to a human-readable place / landmark / street name
+                    LocationAndContactHelper.fetchPlaceName(context, loc.latitude, loc.longitude) { resolvedPlaceName ->
+                        locationName = resolvedPlaceName
+                        isResolvingLocation = false
+                        Toast.makeText(context, "Location pinned: $resolvedPlaceName", Toast.LENGTH_SHORT).show()
                     }
-                    Toast.makeText(context, "Location pinned!", Toast.LENGTH_SHORT).show()
                 },
-                onError = { err -> Toast.makeText(context, err, Toast.LENGTH_SHORT).show() }
+                onError = { err ->
+                    isResolvingLocation = false
+                    Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                }
             )
         } else {
             Toast.makeText(context, "Location permission denied", Toast.LENGTH_SHORT).show()
@@ -2050,6 +2058,7 @@ fun SingleTaskEditorView(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         FilledTonalButton(
+                            enabled = !isResolvingLocation,
                             onClick = {
                                 locationPermissionLauncher.launch(
                                     arrayOf(
@@ -2060,9 +2069,15 @@ fun SingleTaskEditorView(
                             },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Pin GPS", style = MaterialTheme.typography.labelSmall)
+                            if (isResolvingLocation) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Fetching place...", style = MaterialTheme.typography.labelSmall)
+                            } else {
+                                Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Pin GPS", style = MaterialTheme.typography.labelSmall)
+                            }
                         }
 
                         if (latitude != null && longitude != null) {
@@ -2096,7 +2111,7 @@ fun SingleTaskEditorView(
 
                 if (latitude != null && longitude != null) {
                     Text(
-                        text = "GPS Coordinates: ${String.format("%.5f", latitude)}, ${String.format("%.5f", longitude)}",
+                        text = "GPS Coordinates: ${String.format(Locale.US, "%.5f", latitude)}, ${String.format(Locale.US, "%.5f", longitude)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
