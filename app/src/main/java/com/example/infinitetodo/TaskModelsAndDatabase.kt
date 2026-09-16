@@ -5,43 +5,23 @@ import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
 enum class TaskPriority {
-    LOW,
-    MEDIUM,
-    HIGH,
-    URGENT
+    LOW, MEDIUM, HIGH, URGENT
 }
 
 enum class RecurrenceRule {
-    NONE,
-    DAILY,
-    WEEKLY,
-    FORTNIGHTLY,
-    MONTHLY,
-    SIX_MONTHLY,
-    YEARLY,
-    CUSTOM
+    NONE, DAILY, WEEKLY, FORTNIGHTLY, MONTHLY, SIX_MONTHLY, YEARLY, CUSTOM
 }
 
 enum class AttachmentType {
-    FILE,
-    IMAGE,
-    AUDIO,
-    VIDEO,
-    CONTACT
+    FILE, IMAGE, VIDEO, AUDIO, CONTACT
 }
 
 enum class AppThemeMode {
-    LIGHT,
-    DARK,
-    SYSTEM,
-    EMERALD,
-    SUNSET,
-    OCEAN
+    LIGHT, DARK, SYSTEM, EMERALD, SUNSET, OCEAN
 }
 
 enum class TaskViewMode {
-    DETAILED,
-    COMPACT
+    DETAILED, COMPACT
 }
 
 @Entity(
@@ -60,15 +40,16 @@ data class TaskItem(
     @PrimaryKey(autoGenerate = true) val id: Long = 0L,
     val parentId: Long? = null,
     val title: String,
+    val isCompleted: Boolean = false,
     val notes: String? = null,
     val tags: String? = null,
     val priority: TaskPriority = TaskPriority.MEDIUM,
-    val isCompleted: Boolean = false,
     val orderIndex: Int = 0,
     val createdTimestamp: Long = System.currentTimeMillis(),
     val lastModifiedTimestamp: Long = System.currentTimeMillis(),
     val reminderTimestamp: Long? = null,
     val dueTimestamp: Long? = null,
+    val calendarEventId: Long? = null,
     val repeatRule: RecurrenceRule = RecurrenceRule.NONE,
     val repeatIntervalDays: Int = 0,
     val repeatIntervalHours: Int = 0,
@@ -77,10 +58,11 @@ data class TaskItem(
     val repeatStartTimeMs: Long? = null,
     val repeatEndTimeMs: Long? = null,
     val linkedTaskIds: String? = null,
+
+    // Location Fields
     val locationName: String? = null,
     val latitude: Double? = null,
-    val longitude: Double? = null,
-    val calendarEventId: Long? = null
+    val longitude: Double? = null
 )
 
 @Entity(
@@ -124,9 +106,9 @@ data class RichAttachment(
     val type: AttachmentType,
     val uriString: String,
     val displayName: String,
+    val notes: String? = null,
     val contactPhone: String? = null,
     val isContactPending: Boolean = true,
-    val notes: String? = null,
     val orderIndex: Int = 0,
     val createdTimestamp: Long = System.currentTimeMillis(),
     val lastModifiedTimestamp: Long = System.currentTimeMillis()
@@ -137,45 +119,32 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId IS NULL ORDER BY orderIndex ASC, id DESC")
     fun getRootTasks(): Flow<List<TaskItem>>
 
+    @Query("SELECT * FROM tasks ORDER BY createdTimestamp DESC")
+    fun getAllTasksFlow(): Flow<List<TaskItem>>
+
+    @Query("SELECT * FROM tasks")
+    suspend fun getAllTasksSnapshot(): List<TaskItem>
+
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY orderIndex ASC, id ASC")
     fun getSubtasks(parentId: Long): Flow<List<TaskItem>>
 
     @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY orderIndex ASC, id ASC")
-    suspend fun getSubtasksSync(parentId: Long): List<TaskItem>
-
-    @Query("SELECT * FROM tasks WHERE parentId = :parentId")
-    suspend fun getChildrenOf(parentId: Long): List<TaskItem>
-
-    @Query("SELECT * FROM tasks ORDER BY createdTimestamp DESC")
-    fun getAllTasks(): Flow<List<TaskItem>>
-
-    @Query("SELECT * FROM tasks ORDER BY createdTimestamp DESC")
-    suspend fun getAllTasksSync(): List<TaskItem>
-
-    @Query("SELECT * FROM tasks ORDER BY id ASC")
-    suspend fun getAllTasksSnapshot(): List<TaskItem>
-
-    @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
-    suspend fun getTaskById(id: Long): TaskItem?
+    suspend fun getSubtasksSnapshot(parentId: Long?): List<TaskItem>
 
     @Query("SELECT COUNT(*) FROM tasks WHERE parentId = :parentId")
     fun getSubtaskCount(parentId: Long): Flow<Int>
 
-    @Query("""
-        SELECT * FROM tasks 
-        WHERE title LIKE '%' || :query || '%' 
-           OR notes LIKE '%' || :query || '%' 
-           OR tags LIKE '%' || :query || '%' 
-           OR locationName LIKE '%' || :query || '%'
-        ORDER BY createdTimestamp DESC
-    """)
+    @Query("SELECT * FROM tasks WHERE id = :id")
+    suspend fun getTaskById(id: Long): TaskItem?
+
+    @Query("SELECT * FROM tasks WHERE title LIKE '%' || :query || '%' OR notes LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%' OR locationName LIKE '%' || :query || '%'")
     fun searchTasks(query: String): Flow<List<TaskItem>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: TaskItem): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAllTasks(tasks: List<TaskItem>)
+    suspend fun insertAllTasks(tasks: List<TaskItem>): List<Long>
 
     @Update
     suspend fun updateTask(task: TaskItem)
@@ -186,21 +155,21 @@ interface TaskDao {
     @Query("DELETE FROM tasks")
     suspend fun clearAllTasks()
 
-    // Checklist queries
+    // Checklists
     @Query("SELECT * FROM checklists WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
-    fun getChecklist(taskId: Long): Flow<List<ChecklistItem>>
+    fun getChecklistForTask(taskId: Long): Flow<List<ChecklistItem>>
 
     @Query("SELECT * FROM checklists WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getChecklistSnapshot(taskId: Long): List<ChecklistItem>
 
-    @Query("SELECT * FROM checklists ORDER BY id ASC")
+    @Query("SELECT * FROM checklists")
     suspend fun getAllChecklistSnapshot(): List<ChecklistItem>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChecklistItem(item: ChecklistItem): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAllChecklistItems(items: List<ChecklistItem>)
+    suspend fun insertAllChecklistItems(items: List<ChecklistItem>): List<Long>
 
     @Update
     suspend fun updateChecklistItem(item: ChecklistItem)
@@ -208,21 +177,21 @@ interface TaskDao {
     @Delete
     suspend fun deleteChecklistItem(item: ChecklistItem)
 
-    // Attachment queries
+    // Attachments
     @Query("SELECT * FROM attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
-    fun getAttachments(taskId: Long): Flow<List<RichAttachment>>
+    fun getAttachmentsForTask(taskId: Long): Flow<List<RichAttachment>>
 
     @Query("SELECT * FROM attachments WHERE taskId = :taskId ORDER BY orderIndex ASC, id ASC")
     suspend fun getAttachmentsSnapshot(taskId: Long): List<RichAttachment>
 
-    @Query("SELECT * FROM attachments ORDER BY id ASC")
+    @Query("SELECT * FROM attachments")
     suspend fun getAllAttachmentsSnapshot(): List<RichAttachment>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAttachment(attachment: RichAttachment): Long
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertAllAttachments(attachments: List<RichAttachment>)
+    suspend fun insertAllAttachments(attachments: List<RichAttachment>): List<Long>
 
     @Update
     suspend fun updateAttachment(attachment: RichAttachment)
@@ -249,7 +218,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "infinite_todo.db"
-                ).fallbackToDestructiveMigration().build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }
