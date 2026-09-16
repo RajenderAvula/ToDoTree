@@ -13,6 +13,11 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -107,7 +112,8 @@ object LocationAndContactHelper {
     }
 
     /**
-     * Converts Latitude and Longitude to a readable Place / Landmark Name
+     * Converts Latitude and Longitude to a readable Place / Landmark Name.
+     * Uses Android Geocoder first; if it returns null/empty, falls back to OSM reverse geocoding.
      */
     fun fetchPlaceName(
         context: Context,
@@ -121,14 +127,16 @@ object LocationAndContactHelper {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             geocoder.getFromLocation(latitude, longitude, 1, object : Geocoder.GeocodeListener {
                 override fun onGeocode(addresses: MutableList<Address>) {
-                    val place = formatAddress(addresses.firstOrNull(), latitude, longitude)
-                    mainHandler.post { onResolved(place) }
+                    val place = formatAddress(addresses.firstOrNull())
+                    if (place != null) {
+                        mainHandler.post { onResolved(place) }
+                    } else {
+                        fetchFromWebFallback(latitude, longitude, onResolved)
+                    }
                 }
 
                 override fun onError(errorMessage: String?) {
-                    mainHandler.post {
-                        onResolved("Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})")
-                    }
+                    fetchFromWebFallback(latitude, longitude, onResolved)
                 }
             })
         } else {
@@ -136,23 +144,77 @@ object LocationAndContactHelper {
                 try {
                     @Suppress("DEPRECATION")
                     val addresses = geocoder.getFromLocation(latitude, longitude, 1)
-                    val place = formatAddress(addresses?.firstOrNull(), latitude, longitude)
-                    mainHandler.post { onResolved(place) }
-                } catch (_: Exception) {
-                    mainHandler.post {
-                        onResolved("Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})")
+                    val place = formatAddress(addresses?.firstOrNull())
+                    if (place != null) {
+                        mainHandler.post { onResolved(place) }
+                    } else {
+                        fetchFromWebFallback(latitude, longitude, onResolved)
                     }
+                } catch (_: Exception) {
+                    fetchFromWebFallback(latitude, longitude, onResolved)
                 }
             }
         }
     }
 
-    private fun formatAddress(address: Address?, latitude: Double, longitude: Double): String {
-        if (address == null) {
-            return "Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})"
-        }
+    private fun fetchFromWebFallback(
+        latitude: Double,
+        longitude: Double,
+        onResolved: (String) -> Unit
+    ) {
+        Executors.newSingleThreadExecutor().execute {
+            val mainHandler = Handler(Looper.getMainLooper())
+            var placeName: String? = null
+            try {
+                val urlString = "https://nominatim.openstreetmap.org/reverse?format=json&lat=$latitude&lon=$longitude&zoom=18&addressdetails=1"
+                val url = URL(urlString)
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.setRequestProperty("User-Agent", "ToDoTreeApp/1.0 (Android)")
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
 
-        // Prioritize feature/locality (e.g. "Hitech City, Hyderabad" or "Empire State Building")
+                if (conn.responseCode == 200) {
+                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                    val sb = StringBuilder()
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        sb.append(line)
+                    }
+                    reader.close()
+
+                    val json = JSONObject(sb.toString())
+                    val addressObj = json.optJSONObject("address")
+                    if (addressObj != null) {
+                        val road = addressObj.optString("road", "")
+                        val suburb = addressObj.optString("suburb", "")
+                        val neighbourhood = addressObj.optString("neighbourhood", "")
+                        val city = addressObj.optString("city", addressObj.optString("town", addressObj.optString("county", "")))
+
+                        val parts = mutableListOf<String>()
+                        if (neighbourhood.isNotBlank()) parts.add(neighbourhood)
+                        else if (suburb.isNotBlank()) parts.add(suburb)
+                        if (road.isNotBlank() && !parts.contains(road)) parts.add(road)
+                        if (city.isNotBlank() && !parts.contains(city)) parts.add(city)
+
+                        if (parts.isNotEmpty()) {
+                            placeName = parts.joinToString(", ")
+                        }
+                    }
+                    if (placeName == null) {
+                        placeName = json.optString("display_name", null)
+                    }
+                }
+            } catch (_: Exception) { }
+
+            val finalResult = placeName ?: "Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})"
+            mainHandler.post { onResolved(finalResult) }
+        }
+    }
+
+    private fun formatAddress(address: Address?): String? {
+        if (address == null) return null
+
         val parts = mutableListOf<String>()
         val feature = address.featureName
         val subLocality = address.subLocality
@@ -171,11 +233,7 @@ object LocationAndContactHelper {
             parts.add(adminArea)
         }
 
-        return if (parts.isNotEmpty()) {
-            parts.joinToString(", ")
-        } else {
-            address.getAddressLine(0) ?: "Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})"
-        }
+        return if (parts.isNotEmpty()) parts.joinToString(", ") else address.getAddressLine(0)
     }
 
     fun requestFreshLocation(
