@@ -113,11 +113,23 @@ data class RichAttachment(
     val createdTimestamp: Long = System.currentTimeMillis(),
     val lastModifiedTimestamp: Long = System.currentTimeMillis()
 )
-
 @Dao
 interface TaskDao {
     @Query("SELECT * FROM tasks WHERE parentId IS NULL ORDER BY orderIndex ASC, id DESC")
     fun getRootTasks(): Flow<List<TaskItem>>
+
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY orderIndex ASC, id ASC")
+    fun getSubtasks(parentId: Long): Flow<List<TaskItem>>
+
+    // ADD THIS QUERY: Allows synchronous retrieval for background recursive deletion
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId")
+    suspend fun getSubtasksSync(parentId: Long): List<TaskItem>
+
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId")
+    suspend fun getChildrenOf(parentId: Long): List<TaskItem>
+
+    // ... Keep the rest of your DAO queries as they are ...
+
 
     @Query("SELECT * FROM tasks ORDER BY createdTimestamp DESC")
     fun getAllTasksFlow(): Flow<List<TaskItem>>
