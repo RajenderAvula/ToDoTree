@@ -122,7 +122,8 @@ interface TaskDao {
     fun getSubtasks(parentId: Long): Flow<List<TaskItem>>*/
 
     // ADD THIS QUERY: Allows synchronous retrieval for background recursive deletion
-    @Query("SELECT * FROM tasks WHERE parentId = :parentId")
+    /*@Query("SELECT * FROM tasks WHERE parentId = :parentId")*/
+    @Query("SELECT * FROM tasks WHERE parentId = :parentId ORDER BY orderIndex ASC, id ASC")
     suspend fun getSubtasksSync(parentId: Long): List<TaskItem>
 
     @Query("SELECT * FROM tasks WHERE parentId = :parentId")
