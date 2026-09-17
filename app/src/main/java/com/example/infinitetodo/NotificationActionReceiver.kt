@@ -17,8 +17,9 @@ import java.util.Calendar
 class NotificationActionReceiver : BroadcastReceiver() {
 
     companion object {
-        const val CHANNEL_ID = "TASK_ALERTS_HIGH_PRIORITY"
-        const val CHANNEL_NAME = "Tasks Alerts & Due Dates"
+        const val CHANNEL_REMINDERS = "TASK_CHANNEL_REMINDERS"
+        const val CHANNEL_DUE_DATES = "TASK_CHANNEL_DUE_DATES"
+        const val CHANNEL_REPEATS = "TASK_CHANNEL_REPEATS"
 
         const val ACTION_TRIGGER_ALERT = "com.example.infinitetodo.TRIGGER_ALERT"
         const val ACTION_SNOOZE = "com.example.infinitetodo.ACTION_SNOOZE"
@@ -28,16 +29,17 @@ class NotificationActionReceiver : BroadcastReceiver() {
         const val EXTRA_TASK_TITLE = "EXTRA_TASK_TITLE"
         const val EXTRA_NOTIFICATION_TYPE = "EXTRA_NOTIFICATION_TYPE"
         const val EXTRA_NOTIFICATION_ID = "EXTRA_NOTIFICATION_ID"
+        const val EXTRA_TYPE_OFFSET = "EXTRA_TYPE_OFFSET"
         const val EXTRA_SNOOZE_MINUTES = "EXTRA_SNOOZE_MINUTES"
-        const val EXTRA_REQUEST_CODE_OFFSET = "EXTRA_REQUEST_CODE_OFFSET"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
         val taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE) ?: "Task Alert"
-        val type = intent.getStringExtra(EXTRA_NOTIFICATION_TYPE) ?: "Reminder"
-        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, (taskId * 10).toInt())
+        val type = intent.getStringExtra(EXTRA_NOTIFICATION_TYPE) ?: TaskSchedulerHelper.TYPE_REMINDER
+        val typeOffset = intent.getIntExtra(EXTRA_TYPE_OFFSET, TaskSchedulerHelper.OFFSET_REMINDER)
+        val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, (taskId * 10 + typeOffset).toInt())
 
         when (intent.action) {
             ACTION_TRIGGER_ALERT -> {
@@ -46,18 +48,19 @@ class NotificationActionReceiver : BroadcastReceiver() {
                         val dao = AppDatabase.getDatabase(context).taskDao()
                         val task = dao.getTaskById(taskId)
                         if (task != null && !task.isCompleted) {
-                            showHighPriorityNotification(context, task, type, notificationId)
+                            showHighPriorityNotification(context, task, type, notificationId, typeOffset)
 
+                            // Chain the next repeat alert without disturbing reminder or due alerts
                             if (type == TaskSchedulerHelper.TYPE_REPEAT && task.repeatRule != RecurrenceRule.NONE) {
                                 val nextTime = getNextRecurringTime(task)
                                 if (nextTime != null) {
                                     TaskSchedulerHelper.setExactAlarm(
-                                        context,
-                                        task.id,
-                                        task.title,
-                                        TaskSchedulerHelper.TYPE_REPEAT,
-                                        nextTime,
-                                        3000
+                                        context = context,
+                                        taskId = task.id,
+                                        taskTitle = task.title,
+                                        type = TaskSchedulerHelper.TYPE_REPEAT,
+                                        triggerAtMs = nextTime,
+                                        typeOffset = TaskSchedulerHelper.OFFSET_REPEAT
                                     )
                                 }
                             }
@@ -71,13 +74,14 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 val snoozeMinutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 5)
                 val snoozeTriggerAt = System.currentTimeMillis() + (snoozeMinutes * 60 * 1000L)
 
+                // Reschedule under the exact same slot without collision
                 TaskSchedulerHelper.setExactAlarm(
-                    context,
-                    taskId,
-                    taskTitle,
-                    "Snoozed $type",
-                    snoozeTriggerAt,
-                    5000 + snoozeMinutes
+                    context = context,
+                    taskId = taskId,
+                    taskTitle = taskTitle,
+                    type = "Snoozed $type",
+                    triggerAtMs = snoozeTriggerAt,
+                    typeOffset = typeOffset
                 )
             }
 
@@ -91,90 +95,105 @@ class NotificationActionReceiver : BroadcastReceiver() {
         context: Context,
         task: TaskItem,
         type: String,
-        notificationId: Int
+        notificationId: Int,
+        typeOffset: Int
     ) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+        val channelId = when (typeOffset) {
+            TaskSchedulerHelper.OFFSET_DUE -> CHANNEL_DUE_DATES
+            TaskSchedulerHelper.OFFSET_REPEAT -> CHANNEL_REPEATS
+            else -> CHANNEL_REMINDERS
+        }
+
+        val channelTitle = when (typeOffset) {
+            TaskSchedulerHelper.OFFSET_DUE -> "Task Due Date Alerts"
+            TaskSchedulerHelper.OFFSET_REPEAT -> "Task Recurring Reminders"
+            else -> "Task Specific Reminders"
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
+                channelId,
+                channelTitle,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Urgent task alarms, due dates, and snoozes"
+                description = "Dedicated alerts for $type"
                 enableLights(true)
                 enableVibration(true)
-                vibrationPattern = longArrayOf(0, 500, 200, 500)
                 setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION), null)
             }
             notificationManager.createNotificationChannel(channel)
         }
 
-        // Open App Button
+        // 1. Open App Intent
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("OPEN_TASK_ID", task.id)
         }
         val openPI = PendingIntent.getActivity(
             context,
-            notificationId + 1,
+            notificationId * 10 + 1,
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Snooze 5 Min Button
+        // 2. Snooze 5 Min Intent
         val snooze5Intent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = ACTION_SNOOZE
             putExtra(EXTRA_TASK_ID, task.id)
             putExtra(EXTRA_TASK_TITLE, task.title)
             putExtra(EXTRA_NOTIFICATION_TYPE, type)
+            putExtra(EXTRA_TYPE_OFFSET, typeOffset)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
             putExtra(EXTRA_SNOOZE_MINUTES, 5)
         }
         val snooze5PI = PendingIntent.getBroadcast(
             context,
-            notificationId + 2,
+            notificationId * 10 + 2,
             snooze5Intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Snooze 10 Min Button
+        // 3. Snooze 10 Min Intent
         val snooze10Intent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = ACTION_SNOOZE
             putExtra(EXTRA_TASK_ID, task.id)
             putExtra(EXTRA_TASK_TITLE, task.title)
             putExtra(EXTRA_NOTIFICATION_TYPE, type)
+            putExtra(EXTRA_TYPE_OFFSET, typeOffset)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
             putExtra(EXTRA_SNOOZE_MINUTES, 10)
         }
         val snooze10PI = PendingIntent.getBroadcast(
             context,
-            notificationId + 3,
+            notificationId * 10 + 3,
             snooze10Intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Dismiss / Close Button
+        // 4. Dismiss Intent
         val dismissIntent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = ACTION_DISMISS
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
         val dismissPI = PendingIntent.getBroadcast(
             context,
-            notificationId + 4,
+            notificationId * 10 + 4,
             dismissIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val bodyText = if (!task.notes.isNullOrBlank()) task.notes else "Tap to open or choose an option below"
+        val bodyText = if (!task.notes.isNullOrBlank()) task.notes else "Scheduled: $type alert"
 
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("[$type] ${task.title}")
             .setContentText(bodyText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(bodyText))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setGroup("TASK_GROUP_${task.id}") // Groups alerts under the task without overwriting
             .setAutoCancel(true)
             .setContentIntent(openPI)
             .addAction(android.R.drawable.ic_menu_view, "Open", openPI)
