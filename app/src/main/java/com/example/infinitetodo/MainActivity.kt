@@ -128,7 +128,7 @@ fun MainAppScaffold(
     var activeFullScreenTask by remember { mutableStateOf<TaskItem?>(null) }
     val scope = rememberCoroutineScope()
 
-    var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) } // Pair(Task, isCopy)
+    var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
 
     val context = LocalContext.current
 
@@ -195,7 +195,7 @@ fun MainAppScaffold(
             when (selectedTab) {
                 AppNavTab.HOME -> HomeDashboardTab(
                     viewModel = viewModel,
-                    onOpenTask = { task -> activeFullScreenTask = task }
+                    onOpenTask = { task: TaskItem -> activeFullScreenTask = task }
                 )
                 AppNavTab.TASKS -> TasksTreeTab(
                     viewModel = viewModel,
@@ -206,17 +206,17 @@ fun MainAppScaffold(
                             activeFullScreenTask = draft
                         }
                     },
-                    onOpenFullScreen = { task -> activeFullScreenTask = task },
+                    onOpenFullScreen = { task: TaskItem -> activeFullScreenTask = task },
                     onMoveTask = { task -> taskForAdvancedTransfer = Pair(task, false) },
                     onCopyTask = { task -> taskForAdvancedTransfer = Pair(task, true) }
                 )
                 AppNavTab.CALENDAR -> CalendarAgendaTab(
                     viewModel = viewModel,
-                    onOpenTask = { task -> activeFullScreenTask = task }
+                    onOpenTask = { task: TaskItem -> activeFullScreenTask = task }
                 )
                 AppNavTab.GANTT -> GanttChartTab(
                     viewModel = viewModel,
-                    onOpenTask = { task -> activeFullScreenTask = task }
+                    onOpenTask = { task: TaskItem -> activeFullScreenTask = task }
                 )
                 AppNavTab.SETTINGS -> SettingsManagerTab(
                     currentTheme = currentTheme,
@@ -250,7 +250,7 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
-// PAGINATION CONTROLLER WIDGET (10 TASKS PER PAGE)
+// PAGINATION CONTROLLER WIDGET
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskPaginationBar(
@@ -269,12 +269,12 @@ fun TaskPaginationBar(
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp)
+                .padding(top = 8.dp, bottom = 80.dp) // Clears the FAB completely
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -305,11 +305,13 @@ fun TaskPaginationBar(
                 }
             }
         }
+    } else {
+        Spacer(Modifier.height(80.dp))
     }
 }
 
 // -----------------------------------------------------------------------------------------
-// ADVANCED TRANSFER DIALOG (DEEP SUB-SUB-SUB TASKS & INTRA-HIERARCHY SUPPORT)
+// ADVANCED TRANSFER DIALOG
 // -----------------------------------------------------------------------------------------
 @Composable
 fun AdvancedTaskTransferDialog(
@@ -359,7 +361,6 @@ fun AdvancedTaskTransferDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // SECTION 1: ALL VS SELECTIVE SUBTASKS, SUB-SUBTASKS & SUB-SUB-SUBTASKS
                 if (allDescendantNodes.isNotEmpty()) {
                     Text("Subtask Transfer Scope:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
 
@@ -421,7 +422,6 @@ fun AdvancedTaskTransferDialog(
                     HorizontalDivider()
                 }
 
-                // SECTION 2: HOW MANY COPIES TO MAKE (COPY ONLY)
                 if (isCopy) {
                     Text("Number of Copies to Make:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                     Row(
@@ -450,11 +450,7 @@ fun AdvancedTaskTransferDialog(
                     HorizontalDivider()
                 }
 
-                // SECTION 3: MULTI-TARGET SELECTION (ALLOWS INTRA-HIERARCHY COPYING)
                 Text("Select Target Destination(s):", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                if (isCopy) {
-                    Text("You can select Root, other tasks, or any of this task's own subtasks/sub-subtasks!", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                }
 
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -464,7 +460,6 @@ fun AdvancedTaskTransferDialog(
                         .heightIn(max = 240.dp)
                 ) {
                     LazyColumn(modifier = Modifier.padding(6.dp)) {
-                        // Root Destination Item
                         item {
                             val isRootChecked = null in selectedTargetIds
                             Row(
@@ -490,7 +485,6 @@ fun AdvancedTaskTransferDialog(
                             HorizontalDivider()
                         }
 
-                        // Other Tasks & Sub-Tasks Destinations
                         items(potentialParents, key = { it.id }) { parentCandidate ->
                             val isTargetChecked = parentCandidate.id in selectedTargetIds
                             val isOwnDescendant = remember(allDescendantNodes, parentCandidate.id) {
@@ -556,7 +550,7 @@ fun AdvancedTaskTransferDialog(
                     onDismiss()
                 }
             ) {
-                Text(if (isCopy) "Confirm Copy (${selectedTargetIds.size} target${if (selectedTargetIds.size > 1) "s" else ""})" else "Confirm Move")
+                Text(if (isCopy) "Confirm Copy (${selectedTargetIds.size})" else "Confirm Move")
             }
         },
         dismissButton = {
@@ -565,9 +559,6 @@ fun AdvancedTaskTransferDialog(
     )
 }
 
-// -----------------------------------------------------------------------------------------
-// COMPACT CONTACT QUICK ACTION STRIP
-// -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
     displayName: String,
@@ -1134,11 +1125,8 @@ fun TaskFilterHeaderBar(
                 }
             }
         }
-    }
-}
-
-// -----------------------------------------------------------------------------------------
-// 1. HOME DASHBOARD TAB (WITH NON-CUTTING NOTIFICATION ICON & 10 TASKS PER PAGE)
+        // -----------------------------------------------------------------------------------------
+// 1. HOME DASHBOARD TAB
 // -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
@@ -1153,6 +1141,10 @@ fun HomeDashboardTab(
     var showTodayNotificationsDialog by remember { mutableStateOf(false) }
     var currentPage by remember { mutableIntStateOf(1) }
 
+    var isMultiSelectTasksMode by remember { mutableStateOf(false) }
+    var selectedTaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showBatchDeleteTasksConfirm by remember { mutableStateOf(false) }
+
     val todayDueTasks = remember(allTasks) {
         val endOfTodayMs = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 23)
@@ -1163,11 +1155,9 @@ fun HomeDashboardTab(
 
         allTasks.filter { task ->
             if (task.isCompleted) return@filter false
-
             val hasDueTodayOrPast = task.dueTimestamp != null && task.dueTimestamp <= endOfTodayMs
             val hasReminderTodayOrPast = task.reminderTimestamp != null && task.reminderTimestamp <= endOfTodayMs
             val hasRepeatActive = task.repeatRule != RecurrenceRule.NONE && (task.repeatStartDate == null || task.repeatStartDate <= endOfTodayMs)
-
             hasDueTodayOrPast || hasReminderTodayOrPast || hasRepeatActive
         }
     }
@@ -1198,8 +1188,83 @@ fun HomeDashboardTab(
         displayedTasks.drop(startIndex).take(TASKS_PER_PAGE)
     }
 
+    if (showBatchDeleteTasksConfirm) {
+        DeleteConfirmationDialog(
+            title = "Delete ${selectedTaskIds.size} Task(s)?",
+            message = "Are you sure you want to delete the ${selectedTaskIds.size} selected tasks? All subtasks, checklists, attachments, and calendar entries will also be permanently deleted.",
+            onConfirm = {
+                viewModel.deleteTasksBatch(selectedTaskIds)
+                selectedTaskIds = emptySet()
+                isMultiSelectTasksMode = false
+                showBatchDeleteTasksConfirm = false
+            },
+            onDismiss = { showBatchDeleteTasksConfirm = false }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
+
+        if (isMultiSelectTasksMode) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${selectedTaskIds.size} selected",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                selectedTaskIds = if (selectedTaskIds.size == displayedTasks.size) {
+                                    emptySet()
+                                } else {
+                                    displayedTasks.map { it.id }.toSet()
+                                }
+                            }
+                        ) {
+                            Text(if (selectedTaskIds.size == displayedTasks.size) "Deselect All" else "Select All")
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (selectedTaskIds.isNotEmpty()) {
+                            Button(
+                                onClick = { showBatchDeleteTasksConfirm = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Delete")
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isMultiSelectTasksMode = false
+                                selectedTaskIds = emptySet()
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Cancel")
+                        }
+                    }
+                }
+            }
+        }
 
         LazyColumn(
             modifier = Modifier
@@ -1213,26 +1278,18 @@ fun HomeDashboardTab(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        // ROW WITH FULL SAFE PADDING FOR NOTIFICATION BELL (NO CUT-OFF)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Task Analytics & Metrics Summary",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f)
-                            )
-
                             Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                color = MaterialTheme.colorScheme.surface,
                                 shape = RoundedCornerShape(20.dp),
-                                modifier = Modifier.padding(start = 8.dp)
+                                modifier = Modifier.padding(end = 10.dp)
                             ) {
                                 IconButton(
                                     onClick = { showTodayNotificationsDialog = true },
-                                    modifier = Modifier.size(42.dp)
+                                    modifier = Modifier.size(40.dp)
                                 ) {
                                     BadgedBox(
                                         badge = {
@@ -1248,11 +1305,26 @@ fun HomeDashboardTab(
                                     ) {
                                         Icon(
                                             imageVector = if (todayDueTasks.isNotEmpty()) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
-                                            contentDescription = "Today & Overdue Alerts",
+                                            contentDescription = "Alerts",
                                             tint = if (todayDueTasks.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(24.dp)
                                         )
                                     }
+                                }
+                            }
+
+                            Text(
+                                text = "Task Analytics & Summary",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            if (!isMultiSelectTasksMode && displayedTasks.isNotEmpty()) {
+                                TextButton(onClick = { isMultiSelectTasksMode = true }) {
+                                    Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Select Tasks")
                                 }
                             }
                         }
@@ -1288,6 +1360,7 @@ fun HomeDashboardTab(
                 val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
                 val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
                 val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
+                val isTaskSelected = task.id in selectedTaskIds
 
                 var hierarchyPath by remember { mutableStateOf("") }
                 val scope = rememberCoroutineScope()
@@ -1298,7 +1371,16 @@ fun HomeDashboardTab(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onOpenTask(task) },
+                        .then(
+                            if (isTaskSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier
+                        )
+                        .clickable {
+                            if (isMultiSelectTasksMode) {
+                                selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
+                            } else {
+                                onOpenTask(task)
+                            }
+                        },
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -1313,6 +1395,15 @@ fun HomeDashboardTab(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                            if (isMultiSelectTasksMode) {
+                                Checkbox(
+                                    checked = isTaskSelected,
+                                    onCheckedChange = {
+                                        selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
+                                    }
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
                             PriorityBadge(task.priority)
                             if (subtaskCount > 0) {
                                 Spacer(Modifier.width(8.dp))
@@ -1323,15 +1414,24 @@ fun HomeDashboardTab(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = task.isCompleted,
-                                onCheckedChange = { viewModel.toggleTaskCompletion(task) }
-                            )
-                            Spacer(Modifier.width(6.dp))
+                            if (!isMultiSelectTasksMode) {
+                                Checkbox(
+                                    checked = task.isCompleted,
+                                    onCheckedChange = { viewModel.toggleTaskCompletion(task) }
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
+
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable { onOpenTask(task) }
+                                    .clickable {
+                                        if (isMultiSelectTasksMode) {
+                                            selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
+                                        } else {
+                                            onOpenTask(task)
+                                        }
+                                    }
                             ) {
                                 HighlightedText(
                                     text = task.title.ifBlank { "Untitled Task" },
@@ -1416,7 +1516,6 @@ fun HomeDashboardTab(
                 }
             }
 
-            // PAGINATION FOOTER (10 TASKS PER PAGE)
             item {
                 TaskPaginationBar(
                     currentPage = currentPage,
@@ -1517,7 +1616,7 @@ fun HomeDashboardTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 2. TASKS TREE TAB (WITH 10 TASKS PER PAGE PAGINATION)
+// 2. TASKS TREE TAB
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
@@ -1535,6 +1634,10 @@ fun TasksTreeTab(
     val context = LocalContext.current
 
     var currentPage by remember { mutableIntStateOf(1) }
+
+    var isMultiSelectTreeMode by remember { mutableStateOf(false) }
+    var selectedTaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
 
     val displayedTasks = remember(rootTasks, searchResults, searchQuery, filterState) {
         val base = if (searchQuery.isNotBlank()) searchResults else rootTasks
@@ -1554,8 +1657,83 @@ fun TasksTreeTab(
         displayedTasks.drop(startIndex).take(TASKS_PER_PAGE)
     }
 
+    if (showBatchDeleteConfirm) {
+        DeleteConfirmationDialog(
+            title = "Delete ${selectedTaskIds.size} Task(s)?",
+            message = "Are you sure you want to delete the ${selectedTaskIds.size} selected tasks and their subtrees?",
+            onConfirm = {
+                viewModel.deleteTasksBatch(selectedTaskIds)
+                selectedTaskIds = emptySet()
+                isMultiSelectTreeMode = false
+                showBatchDeleteConfirm = false
+            },
+            onDismiss = { showBatchDeleteConfirm = false }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
+
+        if (isMultiSelectTreeMode) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${selectedTaskIds.size} selected",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                if (selectedTaskIds.size == displayedTasks.size) {
+                                    selectedTaskIds = emptySet()
+                                } else {
+                                    selectedTaskIds = displayedTasks.map { it.id }.toSet()
+                                }
+                            }
+                        ) {
+                            Text(if (selectedTaskIds.size == displayedTasks.size) "Deselect All" else "Select All")
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (selectedTaskIds.isNotEmpty()) {
+                            Button(
+                                onClick = { showBatchDeleteConfirm = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Delete")
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isMultiSelectTreeMode = false
+                                selectedTaskIds = emptySet()
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Cancel")
+                        }
+                    }
+                }
+            }
+        }
 
         Row(
             modifier = Modifier
@@ -1566,6 +1744,13 @@ fun TasksTreeTab(
         ) {
             Text("Hierarchical Tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row {
+                IconButton(onClick = { isMultiSelectTreeMode = !isMultiSelectTreeMode }) {
+                    Icon(
+                        Icons.Default.Checklist,
+                        contentDescription = "Multi Select",
+                        tint = if (isMultiSelectTreeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                    )
+                }
                 IconButton(onClick = {
                     viewModel.syncAllTasksToCalendar { count ->
                         Toast.makeText(context, "Synced $count task(s) to Google Calendar", Toast.LENGTH_SHORT).show()
@@ -1587,17 +1772,33 @@ fun TasksTreeTab(
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
             items(paginatedTasks, key = { it.id }) { task ->
-                TaskNodeView(
-                    task = task,
-                    depth = 0,
-                    viewMode = viewMode,
-                    searchQuery = searchQuery,
-                    viewModel = viewModel,
-                    onAddSubtask = onAddSubtask,
-                    onOpenFullScreen = onOpenFullScreen,
-                    onMoveTask = onMoveTask,
-                    onCopyTask = onCopyTask
-                )
+                val isSelected = task.id in selectedTaskIds
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isMultiSelectTreeMode) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = {
+                                selectedTaskIds = if (isSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
+                            },
+                            modifier = Modifier.padding(start = 6.dp)
+                        )
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        TaskNodeView(
+                            task = task,
+                            depth = 0,
+                            viewMode = viewMode,
+                            searchQuery = searchQuery,
+                            viewModel = viewModel,
+                            onAddSubtask = onAddSubtask,
+                            onOpenFullScreen = onOpenFullScreen,
+                            onMoveTask = onMoveTask,
+                            onCopyTask = onCopyTask
+                        )
+                    }
+                }
             }
 
             item {
@@ -2415,40 +2616,17 @@ fun TaskNodeView(
 }
 
 // -----------------------------------------------------------------------------------------
-// FULL SCREEN WORKSPACE DIALOG
+// FULL SCREEN NOTES/DESCRIPTION DEDICATED EDITOR DIALOG
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FullScreenTaskWorkspaceDialog(
-    initialTask: TaskItem,
-    viewModel: TaskViewModel,
-    onDismiss: () -> Unit
+fun FullScreenNotesEditorDialog(
+    initialNotes: String,
+    taskTitle: String,
+    onDismiss: () -> Unit,
+    onSaveNotes: (String) -> Unit
 ) {
-    var primaryTask by remember(initialTask.id) { mutableStateOf(initialTask) }
-    var referencedTask by remember { mutableStateOf<TaskItem?>(null) }
-    var selectedWorkspaceTab by remember { mutableIntStateOf(0) }
-
-    var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
-
-    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
-    val context = LocalContext.current
-
-    LaunchedEffect(allTasks, primaryTask.id) {
-        val updated = allTasks.find { it.id == primaryTask.id }
-        if (updated != null) {
-            primaryTask = updated
-        }
-    }
-
-    LaunchedEffect(allTasks, referencedTask?.id) {
-        val refId = referencedTask?.id
-        if (refId != null) {
-            val updatedRef = allTasks.find { it.id == refId }
-            if (updatedRef != null) {
-                referencedTask = updatedRef
-            }
-        }
-    }
+    var editableNotes by remember { mutableStateOf(initialNotes) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -2456,95 +2634,49 @@ fun FullScreenTaskWorkspaceDialog(
     ) {
         Scaffold(
             topBar = {
-                Column {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                if (selectedWorkspaceTab == 0) primaryTask.title.ifBlank { "Task Workspace" }
-                                else "Referenced: ${referencedTask?.title ?: ""}",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close")
-                            }
+                TopAppBar(
+                    title = {
+                        Text("Notes: ${taskTitle.ifBlank { "Task" }}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
                         }
-                    )
-
-                    if (referencedTask != null) {
-                        TabRow(selectedTabIndex = selectedWorkspaceTab) {
-                            Tab(
-                                selected = selectedWorkspaceTab == 0,
-                                onClick = { selectedWorkspaceTab = 0 },
-                                text = { Text(primaryTask.title.ifBlank { "Original Task" }, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            )
-                            Tab(
-                                selected = selectedWorkspaceTab == 1,
-                                onClick = { selectedWorkspaceTab = 1 },
-                                text = {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text(referencedTask?.title?.ifBlank { "Referenced" } ?: "Referenced", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                            )
+                    },
+                    actions = {
+                        Button(
+                            onClick = {
+                                onSaveNotes(editableNotes)
+                                onDismiss()
+                            }
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Done")
                         }
                     }
-                }
+                )
             }
         ) { paddingValues ->
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
+                    .padding(16.dp)
             ) {
-                if (selectedWorkspaceTab == 0) {
-                    key(primaryTask.id) {
-                        SingleTaskEditorView(
-                            task = primaryTask,
-                            viewModel = viewModel,
-                            onDismiss = onDismiss,
-                            onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
-                            onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
-                            onOpenReferencedCrossTab = { target ->
-                                referencedTask = target
-                                selectedWorkspaceTab = 1
-                            }
-                        )
-                    }
-                } else if (referencedTask != null) {
-                    key(referencedTask!!.id) {
-                        SingleTaskEditorView(
-                            task = referencedTask!!,
-                            viewModel = viewModel,
-                            onDismiss = { selectedWorkspaceTab = 0 },
-                            onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
-                            onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
-                            onOpenReferencedCrossTab = { nextTarget ->
-                                referencedTask = nextTarget
-                            }
-                        )
-                    }
-                }
+                OutlinedTextField(
+                    value = editableNotes,
+                    onValueChange = { editableNotes = it },
+                    placeholder = { Text("Write extensive descriptions, notes, ideas...") },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
-        }
-
-        taskForAdvancedTransfer?.let { (task, isCopy) ->
-            AdvancedTaskTransferDialog(
-                task = task,
-                isCopy = isCopy,
-                viewModel = viewModel,
-                onDismiss = { taskForAdvancedTransfer = null }
-            )
         }
     }
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (WITH MULTI-FILE ATTACHMENT DELETION & DOCKETED HEADER)
+// SINGLE TASK EDITOR VIEW
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2593,10 +2725,11 @@ fun SingleTaskEditorView(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var itemPendingDeleteChecklist by remember { mutableStateOf<ChecklistItem?>(null) }
 
-    // Multi-File Attachment Batch Delete State
     var selectedAttachmentIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var isAttachmentSelectionMode by remember { mutableStateOf(false) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+
+    var showFullScreenNotesDialog by remember { mutableStateOf(false) }
 
     val liveChecklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
@@ -2657,6 +2790,17 @@ fun SingleTaskEditorView(
         } else {
             Toast.makeText(context, "Location permission denied", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    if (showFullScreenNotesDialog) {
+        FullScreenNotesEditorDialog(
+            initialNotes = notes,
+            taskTitle = title,
+            onDismiss = { showFullScreenNotesDialog = false },
+            onSaveNotes = { updatedNotes ->
+                notes = updatedNotes
+            }
+        )
     }
 
     if (showDeleteConfirm) {
@@ -2768,9 +2912,6 @@ fun SingleTaskEditorView(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // =========================================================================================
-        // DOCKETED / STICKY HEADER BAR (PINNED ABOVE SCROLLABLE CONTENT)
-        // =========================================================================================
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
@@ -2782,7 +2923,6 @@ fun SingleTaskEditorView(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Row 1: Action Controls Strip
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2818,6 +2958,7 @@ fun SingleTaskEditorView(
                                 longitude = longitude
                             )
                             Toast.makeText(context, "Saved changes ✓", Toast.LENGTH_SHORT).show()
+                            onDismiss()
                         },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
@@ -2880,7 +3021,6 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                // Row 2: Priority Badge and Created Timestamp
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -2907,7 +3047,6 @@ fun SingleTaskEditorView(
                     }
                 }
 
-                // Row 3: Due, Reminder, Repeat & Completion Chips
                 TaskMetadataStatusRow(
                     isCompleted = task.isCompleted,
                     completedTimestamp = task.completedTimestamp,
@@ -2920,7 +3059,6 @@ fun SingleTaskEditorView(
                     repeatIntervalMinutes = repeatMinutesText.toIntOrNull() ?: 0
                 )
 
-                // Row 4: Location, Tags, Checklists & Attachments Summary in Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3026,9 +3164,6 @@ fun SingleTaskEditorView(
             }
         }
 
-        // =========================================================================================
-        // SCROLLABLE BODY CONTENT
-        // =========================================================================================
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -3066,6 +3201,32 @@ fun SingleTaskEditorView(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Description & Notes", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(
+                        onClick = { showFullScreenNotesDialog = true }
+                    ) {
+                        Icon(Icons.Default.OpenInFull, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Open Full Screen Notes")
+                    }
+                }
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = { notes = it },
+                    placeholder = { Text("Add notes, descriptions, links...") },
+                    minLines = 4,
+                    maxLines = 10,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -3234,15 +3395,6 @@ fun SingleTaskEditorView(
                     }
                 }
             }
-
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                label = { Text("Description & Notes") },
-                minLines = 4,
-                maxLines = 10,
-                modifier = Modifier.fillMaxWidth()
-            )
 
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -3686,9 +3838,6 @@ fun SingleTaskEditorView(
                 }
             }
 
-            // =========================================================================================
-            // ATTACHMENTS CARD WITH MULTI-FILE BATCH SELECTION & DELETION
-            // =========================================================================================
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -3725,13 +3874,15 @@ fun SingleTaskEditorView(
                                         }
                                     }
 
-                                    IconButton(
+                                    Spacer(Modifier.width(4.dp))
+                                    OutlinedButton(
                                         onClick = {
                                             isAttachmentSelectionMode = false
                                             selectedAttachmentIds = emptySet()
-                                        }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                                     ) {
-                                        Icon(Icons.Default.Close, contentDescription = "Cancel Select Mode")
+                                        Text("Cancel")
                                     }
                                 } else {
                                     TextButton(onClick = { isAttachmentSelectionMode = true }) {
@@ -3963,5 +4114,7 @@ fun SingleTaskEditorView(
                 }
             }
         }
+    }
+}
     }
 }
