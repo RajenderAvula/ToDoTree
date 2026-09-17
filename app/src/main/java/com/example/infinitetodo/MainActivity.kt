@@ -269,7 +269,7 @@ fun TaskPaginationBar(
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 80.dp) // Clears the FAB completely
+                .padding(top = 8.dp, bottom = 80.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -559,6 +559,9 @@ fun AdvancedTaskTransferDialog(
     )
 }
 
+// -----------------------------------------------------------------------------------------
+// CONTACT ACTION STRIP
+// -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
     displayName: String,
@@ -1125,7 +1128,10 @@ fun TaskFilterHeaderBar(
                 }
             }
         }
-        // -----------------------------------------------------------------------------------------
+    }
+}
+
+// -----------------------------------------------------------------------------------------
 // 1. HOME DASHBOARD TAB
 // -----------------------------------------------------------------------------------------
 @Composable
@@ -1193,7 +1199,9 @@ fun HomeDashboardTab(
             title = "Delete ${selectedTaskIds.size} Task(s)?",
             message = "Are you sure you want to delete the ${selectedTaskIds.size} selected tasks? All subtasks, checklists, attachments, and calendar entries will also be permanently deleted.",
             onConfirm = {
-                viewModel.deleteTasksBatch(selectedTaskIds)
+                selectedTaskIds.forEach { id ->
+                    allTasks.find { it.id == id }?.let { viewModel.deleteTask(it) }
+                }
                 selectedTaskIds = emptySet()
                 isMultiSelectTasksMode = false
                 showBatchDeleteTasksConfirm = false
@@ -1631,6 +1639,7 @@ fun TasksTreeTab(
     var searchQuery by remember { mutableStateOf("") }
     val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
     val filterState by viewModel.filterState.collectAsState()
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
     val context = LocalContext.current
 
     var currentPage by remember { mutableIntStateOf(1) }
@@ -1662,7 +1671,9 @@ fun TasksTreeTab(
             title = "Delete ${selectedTaskIds.size} Task(s)?",
             message = "Are you sure you want to delete the ${selectedTaskIds.size} selected tasks and their subtrees?",
             onConfirm = {
-                viewModel.deleteTasksBatch(selectedTaskIds)
+                selectedTaskIds.forEach { id ->
+                    allTasks.find { it.id == id }?.let { viewModel.deleteTask(it) }
+                }
                 selectedTaskIds = emptySet()
                 isMultiSelectTreeMode = false
                 showBatchDeleteConfirm = false
@@ -1695,10 +1706,10 @@ fun TasksTreeTab(
                         Spacer(Modifier.width(8.dp))
                         TextButton(
                             onClick = {
-                                if (selectedTaskIds.size == displayedTasks.size) {
-                                    selectedTaskIds = emptySet()
+                                selectedTaskIds = if (selectedTaskIds.size == displayedTasks.size) {
+                                    emptySet()
                                 } else {
-                                    selectedTaskIds = displayedTasks.map { it.id }.toSet()
+                                    displayedTasks.map { it.id }.toSet()
                                 }
                             }
                         ) {
@@ -2671,6 +2682,135 @@ fun FullScreenNotesEditorDialog(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// FULL SCREEN WORKSPACE DIALOG
+// -----------------------------------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FullScreenTaskWorkspaceDialog(
+    initialTask: TaskItem,
+    viewModel: TaskViewModel,
+    onDismiss: () -> Unit
+) {
+    var primaryTask by remember(initialTask.id) { mutableStateOf(initialTask) }
+    var referencedTask by remember { mutableStateOf<TaskItem?>(null) }
+    var selectedWorkspaceTab by remember { mutableIntStateOf(0) }
+
+    var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
+
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    val context = LocalContext.current
+
+    LaunchedEffect(allTasks, primaryTask.id) {
+        val updated = allTasks.find { it.id == primaryTask.id }
+        if (updated != null) {
+            primaryTask = updated
+        }
+    }
+
+    LaunchedEffect(allTasks, referencedTask?.id) {
+        val refId = referencedTask?.id
+        if (refId != null) {
+            val updatedRef = allTasks.find { it.id == refId }
+            if (updatedRef != null) {
+                referencedTask = updatedRef
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Scaffold(
+            topBar = {
+                Column {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                if (selectedWorkspaceTab == 0) primaryTask.title.ifBlank { "Task Workspace" }
+                                else "Referenced: ${referencedTask?.title ?: ""}",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close")
+                            }
+                        }
+                    )
+
+                    if (referencedTask != null) {
+                        TabRow(selectedTabIndex = selectedWorkspaceTab) {
+                            Tab(
+                                selected = selectedWorkspaceTab == 0,
+                                onClick = { selectedWorkspaceTab = 0 },
+                                text = { Text(primaryTask.title.ifBlank { "Original Task" }, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            )
+                            Tab(
+                                selected = selectedWorkspaceTab == 1,
+                                onClick = { selectedWorkspaceTab = 1 },
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(referencedTask?.title?.ifBlank { "Referenced" } ?: "Referenced", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                if (selectedWorkspaceTab == 0) {
+                    key(primaryTask.id) {
+                        SingleTaskEditorView(
+                            task = primaryTask,
+                            viewModel = viewModel,
+                            onDismiss = onDismiss,
+                            onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
+                            onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
+                            onOpenReferencedCrossTab = { target ->
+                                referencedTask = target
+                                selectedWorkspaceTab = 1
+                            }
+                        )
+                    }
+                } else if (referencedTask != null) {
+                    key(referencedTask!!.id) {
+                        SingleTaskEditorView(
+                            task = referencedTask!!,
+                            viewModel = viewModel,
+                            onDismiss = { selectedWorkspaceTab = 0 },
+                            onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
+                            onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
+                            onOpenReferencedCrossTab = { nextTarget ->
+                                referencedTask = nextTarget
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        taskForAdvancedTransfer?.let { (task, isCopy) ->
+            AdvancedTaskTransferDialog(
+                task = task,
+                isCopy = isCopy,
+                viewModel = viewModel,
+                onDismiss = { taskForAdvancedTransfer = null }
+            )
         }
     }
 }
@@ -3838,6 +3978,9 @@ fun SingleTaskEditorView(
                 }
             }
 
+            // =========================================================================================
+            // ATTACHMENTS CARD WITH MULTI-FILE BATCH SELECTION & DELETION
+            // =========================================================================================
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -3874,15 +4017,13 @@ fun SingleTaskEditorView(
                                         }
                                     }
 
-                                    Spacer(Modifier.width(4.dp))
-                                    OutlinedButton(
+                                    IconButton(
                                         onClick = {
                                             isAttachmentSelectionMode = false
                                             selectedAttachmentIds = emptySet()
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        }
                                     ) {
-                                        Text("Cancel")
+                                        Icon(Icons.Default.Close, contentDescription = "Cancel Select Mode")
                                     }
                                 } else {
                                     TextButton(onClick = { isAttachmentSelectionMode = true }) {
@@ -4114,7 +4255,5 @@ fun SingleTaskEditorView(
                 }
             }
         }
-    }
-}
     }
 }
