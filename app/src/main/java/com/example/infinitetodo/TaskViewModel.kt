@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
@@ -127,7 +126,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun getAllPotentialParents(excludeTaskId: Long): List<TaskItem> {
         val all = dao.getAllTasksSnapshot()
-        // Prevent moving/copying into self or any of its own descendants
         val invalidIds = mutableSetOf(excludeTaskId)
         fun collectDescendants(parentId: Long) {
             val children = all.filter { it.parentId == parentId }
@@ -186,6 +184,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasPermission) return false
 
         return try {
+            val target = CalendarHelper.getPrimaryGoogleCalendar(getApplication()) ?: return false
             val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
             val syncCreatedEpochMs = task.createdTimestamp
 
@@ -214,26 +213,22 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             if (task.calendarEventId != null) {
                 CalendarHelper.updateEvent(
                     context = getApplication(),
+                    target = target,
                     eventId = task.calendarEventId,
                     title = fullCalendarTitle,
                     notes = fullDescription,
-                    startTimeMs = syncCreatedEpochMs,
-                    isAllDay = false
+                    createdTimestampMs = syncCreatedEpochMs
                 )
             } else {
-                val calId = CalendarHelper.getPrimaryGoogleCalendarId(getApplication())
-                if (calId != null) {
-                    val newEventId = CalendarHelper.insertEvent(
-                        context = getApplication(),
-                        calendarId = calId,
-                        title = fullCalendarTitle,
-                        startTimeMs = syncCreatedEpochMs,
-                        notes = fullDescription,
-                        isAllDay = false
-                    )
-                    if (newEventId != null) {
-                        dao.updateTask(task.copy(calendarEventId = newEventId))
-                    }
+                val newEventId = CalendarHelper.insertEvent(
+                    context = getApplication(),
+                    target = target,
+                    title = fullCalendarTitle,
+                    createdTimestampMs = syncCreatedEpochMs,
+                    notes = fullDescription
+                )
+                if (newEventId != null) {
+                    dao.updateTask(task.copy(calendarEventId = newEventId))
                 }
             }
             true
@@ -412,7 +407,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ADVANCED MOVE: MULTI-TARGET & SELECTIVE SUBTASKS
     fun executeAdvancedMove(
         task: TaskItem,
         targetParentIds: Set<Long?>,
@@ -422,8 +416,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             if (targetParentIds.isEmpty()) return@launch
 
-            // If multiple targets were selected for move, the original task moves to the first target,
-            // and copies of it are made into any additional targets.
             val targetList = targetParentIds.toList()
             val primaryTarget = targetList.first()
 
@@ -441,13 +433,11 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 val allChildren = dao.getSubtasksSnapshot(task.id)
                 for (child in allChildren) {
                     if (child.id !in selectedSubtaskIds) {
-                        // Keep unselected subtasks under the original parent or re-parent to root
                         dao.updateTask(child.copy(parentId = task.parentId, lastModifiedTimestamp = now))
                     }
                 }
             }
 
-            // Copy to any subsequent targets if more than one destination was picked
             for (i in 1 until targetList.size) {
                 val extraTarget = targetList[i]
                 deepCopySelectiveRecursive(
@@ -461,7 +451,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ADVANCED COPY: MULTI-TARGET, MULTI-COPIES & SELECTIVE SUBTASKS
     fun executeAdvancedCopy(
         task: TaskItem,
         targetParentIds: Set<Long?>,
@@ -508,19 +497,16 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         val newId = dao.insertTask(copy)
         syncTaskToCalendar(copy.copy(id = newId))
 
-        // Copy checklists
         val checklists = dao.getChecklistSnapshot(task.id)
         for (item in checklists) {
             dao.insertChecklistItem(item.copy(id = 0L, taskId = newId, createdTimestamp = now, lastModifiedTimestamp = now))
         }
 
-        // Copy attachments
         val attachments = dao.getAttachmentsSnapshot(task.id)
         for (att in attachments) {
             dao.insertAttachment(att.copy(id = 0L, taskId = newId, createdTimestamp = now, lastModifiedTimestamp = now))
         }
 
-        // Copy subtasks conditionally
         val children = dao.getSubtasksSnapshot(task.id)
         for (child in children) {
             if (copyAllSubtasks || child.id in selectedSubtaskIds) {
@@ -604,7 +590,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -672,7 +657,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
