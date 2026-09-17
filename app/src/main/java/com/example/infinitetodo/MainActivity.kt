@@ -125,8 +125,7 @@ fun MainAppScaffold(
     var activeFullScreenTask by remember { mutableStateOf<TaskItem?>(null) }
     val scope = rememberCoroutineScope()
 
-    var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }
-    var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }
+    var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) } // Pair(Task, isCopy)
 
     val context = LocalContext.current
 
@@ -205,8 +204,8 @@ fun MainAppScaffold(
                         }
                     },
                     onOpenFullScreen = { task -> activeFullScreenTask = task },
-                    onMoveToTarget = { taskForTargetMove = it },
-                    onCopyToTarget = { taskForTargetCopy = it }
+                    onMoveTask = { task -> taskForAdvancedTransfer = Pair(task, false) },
+                    onCopyTask = { task -> taskForAdvancedTransfer = Pair(task, true) }
                 )
                 AppNavTab.CALENDAR -> CalendarAgendaTab(
                     viewModel = viewModel,
@@ -236,36 +235,246 @@ fun MainAppScaffold(
             }
         }
 
-        taskForTargetMove?.let { movingTask ->
-            TaskDestinationDialog(
-                title = "Move '${movingTask.title}' to...",
-                currentTaskId = movingTask.id,
+        taskForAdvancedTransfer?.let { (task, isCopy) ->
+            AdvancedTaskTransferDialog(
+                task = task,
+                isCopy = isCopy,
                 viewModel = viewModel,
-                onDismiss = { taskForTargetMove = null },
-                onSelectTarget = { targetParentId ->
-                    viewModel.moveTaskToTarget(movingTask, targetParentId)
-                    taskForTargetMove = null
-                    Toast.makeText(context, "Task moved successfully", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        taskForTargetCopy?.let { copyingTask ->
-            TaskDestinationDialog(
-                title = "Copy '${copyingTask.title}' to...",
-                currentTaskId = copyingTask.id,
-                viewModel = viewModel,
-                onDismiss = { taskForTargetCopy = null },
-                onSelectTarget = { targetParentId ->
-                    viewModel.copyTaskToTarget(copyingTask.id, targetParentId)
-                    taskForTargetCopy = null
-                    Toast.makeText(context, "Task copied successfully", Toast.LENGTH_SHORT).show()
-                }
+                onDismiss = { taskForAdvancedTransfer = null }
             )
         }
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// ADVANCED TRANSFER DIALOG (ALL VS SELECTIVE SUBTASKS, COPIES COUNT, MULTI-TARGETS)
+// -----------------------------------------------------------------------------------------
+@Composable
+fun AdvancedTaskTransferDialog(
+    task: TaskItem,
+    isCopy: Boolean,
+    viewModel: TaskViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var moveOrCopyAll by remember { mutableStateOf(true) }
+    var selectedSubtaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var immediateSubtasks by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
+
+    var numberOfCopies by remember { mutableIntStateOf(1) }
+    var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
+    var selectedTargetIds by remember { mutableStateOf<Set<Long?>>(emptySet()) }
+
+    LaunchedEffect(task.id) {
+        scope.launch {
+            immediateSubtasks = viewModel.getImmediateSubtasksSnapshot(task.id)
+            potentialParents = viewModel.getAllPotentialParents(task.id)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isCopy) Icons.Default.ContentCopy else Icons.Default.DriveFileMove,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (isCopy) "Copy '${task.title.ifBlank { "Task" }}'" else "Move '${task.title.ifBlank { "Task" }}'",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // SECTION 1: ALL VS SELECTIVE SUBTASKS (If task has subtasks)
+                if (immediateSubtasks.isNotEmpty()) {
+                    Text("Subtask Transfer Scope:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = moveOrCopyAll, onClick = { moveOrCopyAll = true })
+                        Spacer(Modifier.width(6.dp))
+                        Text("Entire Task with all Subtasks (${immediateSubtasks.size})")
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = !moveOrCopyAll, onClick = { moveOrCopyAll = false })
+                        Spacer(Modifier.width(6.dp))
+                        Text("Only specific subtasks")
+                    }
+
+                    if (!moveOrCopyAll) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(start = 12.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Choose subtasks to include:", style = MaterialTheme.typography.labelMedium)
+                                immediateSubtasks.forEach { subtask ->
+                                    val isChecked = subtask.id in selectedSubtaskIds
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().clickable {
+                                            selectedSubtaskIds = if (isChecked) selectedSubtaskIds - subtask.id else selectedSubtaskIds + subtask.id
+                                        },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = isChecked,
+                                            onCheckedChange = {
+                                                selectedSubtaskIds = if (isChecked) selectedSubtaskIds - subtask.id else selectedSubtaskIds + subtask.id
+                                            }
+                                        )
+                                        Text(subtask.title.ifBlank { "Subtask #${subtask.id}" }, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalDivider()
+                }
+
+                // SECTION 2: HOW MANY COPIES TO MAKE (COPY ONLY)
+                if (isCopy) {
+                    Text("Number of Copies to Make:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalIconButton(
+                            onClick = { if (numberOfCopies > 1) numberOfCopies-- },
+                            enabled = numberOfCopies > 1
+                        ) {
+                            Icon(Icons.Default.Remove, contentDescription = "Minus")
+                        }
+
+                        Text(
+                            text = "$numberOfCopies copy${if (numberOfCopies > 1) "ies" else ""}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        FilledTonalIconButton(
+                            onClick = { numberOfCopies++ }
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Add")
+                        }
+                    }
+                    HorizontalDivider()
+                }
+
+                // SECTION 3: SELECT MULTIPLE TARGET DESTINATIONS
+                Text("Select Target Destination(s):", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                Text("Check one or more places to send the task:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)
+                ) {
+                    LazyColumn(modifier = Modifier.padding(6.dp)) {
+                        // Root Destination Item
+                        item {
+                            val isRootChecked = null in selectedTargetIds
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedTargetIds = if (isRootChecked) selectedTargetIds - null else selectedTargetIds + null
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isRootChecked,
+                                    onCheckedChange = {
+                                        selectedTargetIds = if (isRootChecked) selectedTargetIds - null else selectedTargetIds + null
+                                    }
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Icon(Icons.Default.Home, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("★ Root Level (Main Task)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+                            HorizontalDivider()
+                        }
+
+                        // Other Tasks Destinations
+                        items(potentialParents, key = { it.id }) { parentCandidate ->
+                            val isTargetChecked = parentCandidate.id in selectedTargetIds
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedTargetIds = if (isTargetChecked) selectedTargetIds - parentCandidate.id else selectedTargetIds + parentCandidate.id
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isTargetChecked,
+                                    onCheckedChange = {
+                                        selectedTargetIds = if (isTargetChecked) selectedTargetIds - parentCandidate.id else selectedTargetIds + parentCandidate.id
+                                    }
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Column {
+                                    Text(parentCandidate.title.ifBlank { "Task #${parentCandidate.id}" }, fontWeight = FontWeight.Medium)
+                                    Text(if (parentCandidate.parentId == null) "Main Task" else "Subtask", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = selectedTargetIds.isNotEmpty(),
+                onClick = {
+                    if (isCopy) {
+                        viewModel.executeAdvancedCopy(
+                            task = task,
+                            targetParentIds = selectedTargetIds,
+                            numberOfCopies = numberOfCopies,
+                            copyAllSubtasks = moveOrCopyAll,
+                            selectedSubtaskIds = selectedSubtaskIds
+                        )
+                        Toast.makeText(context, "Copied $numberOfCopies time(s) successfully ✓", Toast.LENGTH_SHORT).show()
+                    } else {
+                        viewModel.executeAdvancedMove(
+                            task = task,
+                            targetParentIds = selectedTargetIds,
+                            moveAllSubtasks = moveOrCopyAll,
+                            selectedSubtaskIds = selectedSubtaskIds
+                        )
+                        Toast.makeText(context, "Moved task successfully ✓", Toast.LENGTH_SHORT).show()
+                    }
+                    onDismiss()
+                }
+            ) {
+                Text(if (isCopy) "Confirm Copy (${selectedTargetIds.size} target${if (selectedTargetIds.size > 1) "s" else ""})" else "Confirm Move")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+// -----------------------------------------------------------------------------------------
+// COMPACT CONTACT QUICK ACTION STRIP (CALL, SMS, WHATSAPP, ALL APPS)
+// -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
     displayName: String,
@@ -593,6 +802,9 @@ fun HighlightedText(
     Text(annotated, style = style, fontWeight = fontWeight)
 }
 
+// -----------------------------------------------------------------------------------------
+// COMMON MULTI-CRITERIA FILTER BAR WITH QUICK RESET
+// -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskFilterHeaderBar(
@@ -835,6 +1047,9 @@ fun TaskFilterHeaderBar(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 1. HOME DASHBOARD TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
     viewModel: TaskViewModel,
@@ -1196,8 +1411,8 @@ fun TasksTreeTab(
     viewMode: TaskViewMode,
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
-    onMoveToTarget: (TaskItem) -> Unit,
-    onCopyToTarget: (TaskItem) -> Unit
+    onMoveTask: (TaskItem) -> Unit,
+    onCopyTask: (TaskItem) -> Unit
 ) {
     val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())
     var searchQuery by remember { mutableStateOf("") }
@@ -1259,8 +1474,8 @@ fun TasksTreeTab(
                     viewModel = viewModel,
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
-                    onMoveToTarget = onMoveToTarget,
-                    onCopyToTarget = onCopyToTarget
+                    onMoveTask = onMoveTask,
+                    onCopyTask = onCopyTask
                 )
             }
         }
@@ -1718,6 +1933,9 @@ fun SettingsManagerTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// REUSABLE TASK TREE ROW
+// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
     task: TaskItem,
@@ -1727,8 +1945,8 @@ fun TaskNodeView(
     viewModel: TaskViewModel,
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
-    onMoveToTarget: (TaskItem) -> Unit,
-    onCopyToTarget: (TaskItem) -> Unit
+    onMoveTask: (TaskItem) -> Unit,
+    onCopyTask: (TaskItem) -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
@@ -2008,11 +2226,11 @@ fun TaskNodeView(
                         IconButton(modifier = Modifier.size(30.dp), onClick = { onAddSubtask(task.id) }) {
                             Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(17.dp))
                         }
-                        IconButton(modifier = Modifier.size(30.dp), onClick = { onMoveToTarget(task) }) {
-                            Icon(Icons.Default.DriveFileMove, contentDescription = "Move Target", modifier = Modifier.size(17.dp))
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onMoveTask(task) }) {
+                            Icon(Icons.Default.DriveFileMove, contentDescription = "Move Task", modifier = Modifier.size(17.dp))
                         }
-                        IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyToTarget(task) }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Target", modifier = Modifier.size(17.dp))
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyTask(task) }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Task", modifier = Modifier.size(17.dp))
                         }
                         IconButton(
                             modifier = Modifier.size(30.dp),
@@ -2049,8 +2267,8 @@ fun TaskNodeView(
                     viewModel = viewModel,
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
-                    onMoveToTarget = onMoveToTarget,
-                    onCopyToTarget = onCopyToTarget
+                    onMoveTask = onMoveTask,
+                    onCopyTask = onCopyTask
                 )
             }
         }
@@ -2058,7 +2276,7 @@ fun TaskNodeView(
 }
 
 // -----------------------------------------------------------------------------------------
-// FULL SCREEN WORKSPACE DIALOG WITH MOVE & COPY TARGET SUPPORT
+// FULL SCREEN WORKSPACE DIALOG
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2071,8 +2289,7 @@ fun FullScreenTaskWorkspaceDialog(
     var referencedTask by remember { mutableStateOf<TaskItem?>(null) }
     var selectedWorkspaceTab by remember { mutableIntStateOf(0) }
 
-    var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }
-    var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }
+    var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
 
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
     val context = LocalContext.current
@@ -2151,8 +2368,8 @@ fun FullScreenTaskWorkspaceDialog(
                             task = primaryTask,
                             viewModel = viewModel,
                             onDismiss = onDismiss,
-                            onMoveTask = { taskForTargetMove = it },
-                            onCopyTask = { taskForTargetCopy = it },
+                            onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
+                            onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
                             onOpenReferencedCrossTab = { target ->
                                 referencedTask = target
                                 selectedWorkspaceTab = 1
@@ -2165,8 +2382,8 @@ fun FullScreenTaskWorkspaceDialog(
                             task = referencedTask!!,
                             viewModel = viewModel,
                             onDismiss = { selectedWorkspaceTab = 0 },
-                            onMoveTask = { taskForTargetMove = it },
-                            onCopyTask = { taskForTargetCopy = it },
+                            onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
+                            onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
                             onOpenReferencedCrossTab = { nextTarget ->
                                 referencedTask = nextTarget
                             }
@@ -2176,38 +2393,19 @@ fun FullScreenTaskWorkspaceDialog(
             }
         }
 
-        taskForTargetMove?.let { movingTask ->
-            TaskDestinationDialog(
-                title = "Move '${movingTask.title}' to...",
-                currentTaskId = movingTask.id,
+        taskForAdvancedTransfer?.let { (task, isCopy) ->
+            AdvancedTaskTransferDialog(
+                task = task,
+                isCopy = isCopy,
                 viewModel = viewModel,
-                onDismiss = { taskForTargetMove = null },
-                onSelectTarget = { targetParentId ->
-                    viewModel.moveTaskToTarget(movingTask, targetParentId)
-                    taskForTargetMove = null
-                    Toast.makeText(context, "Task moved successfully", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        taskForTargetCopy?.let { copyingTask ->
-            TaskDestinationDialog(
-                title = "Copy '${copyingTask.title}' to...",
-                currentTaskId = copyingTask.id,
-                viewModel = viewModel,
-                onDismiss = { taskForTargetCopy = null },
-                onSelectTarget = { targetParentId ->
-                    viewModel.copyTaskToTarget(copyingTask.id, targetParentId)
-                    taskForTargetCopy = null
-                    Toast.makeText(context, "Task copied successfully", Toast.LENGTH_SHORT).show()
-                }
+                onDismiss = { taskForAdvancedTransfer = null }
             )
         }
     }
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (DOCKETED COMPREHENSIVE HEADER WITH LOCATION, ATTACHMENTS, ETC.)
+// SINGLE TASK EDITOR VIEW (DOCKETED HEADER WITH MOVE, COPY, LOCATION, METRICS)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2584,7 +2782,6 @@ fun SingleTaskEditorView(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Location Indicator
                     if (locationName.isNotBlank() || latitude != null) {
                         Surface(
                             color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
@@ -2612,7 +2809,6 @@ fun SingleTaskEditorView(
                         }
                     }
 
-                    // Tags Indicators
                     if (tagsText.isNotBlank()) {
                         tagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { tag ->
                             Surface(
@@ -2630,7 +2826,6 @@ fun SingleTaskEditorView(
                         }
                     }
 
-                    // Checklists Metric Indicator
                     if (liveChecklist.isNotEmpty()) {
                         val doneCount = liveChecklist.count { it.isDone }
                         Surface(
@@ -2652,7 +2847,6 @@ fun SingleTaskEditorView(
                         }
                     }
 
-                    // External Attachments Summary Indicator
                     if (liveAttachments.isNotEmpty()) {
                         val filesCount = liveAttachments.count { it.type == AttachmentType.FILE || it.type == AttachmentType.IMAGE }
                         val audiosCount = liveAttachments.count { it.type == AttachmentType.AUDIO }
@@ -3549,47 +3743,4 @@ fun SingleTaskEditorView(
             }
         }
     }
-}
-
-@Composable
-fun TaskDestinationDialog(
-    title: String,
-    currentTaskId: Long,
-    viewModel: TaskViewModel,
-    onDismiss: () -> Unit,
-    onSelectTarget: (Long?) -> Unit
-) {
-    var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(currentTaskId) {
-        scope.launch {
-            potentialParents = viewModel.getAllPotentialParents(currentTaskId)
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 350.dp)) {
-                item {
-                    ListItem(
-                        headlineContent = { Text("★ Root Level (Main Task)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) },
-                        modifier = Modifier.clickable { onSelectTarget(null) }
-                    )
-                    HorizontalDivider()
-                }
-                items(potentialParents, key = { it.id }) { parentCandidate ->
-                    ListItem(
-                        headlineContent = { Text(parentCandidate.title.ifBlank { "Task #${parentCandidate.id}" }) },
-                        supportingContent = { Text(if (parentCandidate.parentId == null) "Main Task" else "Subtask", style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.clickable { onSelectTarget(parentCandidate.id) }
-                    )
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
 }
