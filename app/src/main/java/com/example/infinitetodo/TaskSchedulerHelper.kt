@@ -13,31 +13,62 @@ object TaskSchedulerHelper {
     const val TYPE_DUE = "Due Date"
     const val TYPE_REPEAT = "Repeat Alert"
 
+    // Dedicated channels to prevent Android notification collapsing
+    const val OFFSET_REMINDER = 1
+    const val OFFSET_DUE = 2
+    const val OFFSET_REPEAT = 3
+
     fun scheduleAllAlerts(context: Context, task: TaskItem) {
         if (task.isCompleted) {
             cancelAllAlerts(context, task.id)
             return
         }
 
-        cancelAllAlerts(context, task.id)
         val now = System.currentTimeMillis()
 
-        // 1. Reminder Alert
+        // 1. Isolated Reminder Alert
         if (task.reminderTimestamp != null && task.reminderTimestamp > now) {
-            setExactAlarm(context, task.id, task.title, TYPE_REMINDER, task.reminderTimestamp, 1000)
+            setExactAlarm(
+                context = context,
+                taskId = task.id,
+                taskTitle = task.title,
+                type = TYPE_REMINDER,
+                triggerAtMs = task.reminderTimestamp,
+                typeOffset = OFFSET_REMINDER
+            )
+        } else {
+            cancelSpecificAlert(context, task.id, OFFSET_REMINDER)
         }
 
-        // 2. Due Date Alert
+        // 2. Isolated Due Date Alert
         if (task.dueTimestamp != null && task.dueTimestamp > now) {
-            setExactAlarm(context, task.id, task.title, TYPE_DUE, task.dueTimestamp, 2000)
+            setExactAlarm(
+                context = context,
+                taskId = task.id,
+                taskTitle = task.title,
+                type = TYPE_DUE,
+                triggerAtMs = task.dueTimestamp,
+                typeOffset = OFFSET_DUE
+            )
+        } else {
+            cancelSpecificAlert(context, task.id, OFFSET_DUE)
         }
 
-        // 3. Repeat Interval Alert
+        // 3. Isolated Repeat Interval Alert
         if (task.repeatRule != RecurrenceRule.NONE) {
             val nextRepeat = calculateFirstRepeatTrigger(task, now)
             if (nextRepeat != null && nextRepeat > now) {
-                setExactAlarm(context, task.id, task.title, TYPE_REPEAT, nextRepeat, 3000)
+                setExactAlarm(
+                    context = context,
+                    taskId = task.id,
+                    taskTitle = task.title,
+                    type = TYPE_REPEAT,
+                    triggerAtMs = nextRepeat,
+                    typeOffset = OFFSET_REPEAT
+                )
             }
+        } else {
+            cancelSpecificAlert(context, task.id, OFFSET_REPEAT)
         }
     }
 
@@ -47,22 +78,26 @@ object TaskSchedulerHelper {
         taskTitle: String,
         type: String,
         triggerAtMs: Long,
-        requestCodeOffset: Int
+        typeOffset: Int
     ) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        // Generate globally unique ID: combines task ID and channel offset
+        val uniqueNotificationId = (taskId * 10 + typeOffset).toInt()
+        val uniqueRequestCode = (taskId * 100 + typeOffset).toInt()
 
         val intent = Intent(context, NotificationActionReceiver::class.java).apply {
             action = NotificationActionReceiver.ACTION_TRIGGER_ALERT
             putExtra(NotificationActionReceiver.EXTRA_TASK_ID, taskId)
             putExtra(NotificationActionReceiver.EXTRA_TASK_TITLE, taskTitle)
             putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_TYPE, type)
-            putExtra(NotificationActionReceiver.EXTRA_REQUEST_CODE_OFFSET, requestCodeOffset)
+            putExtra(NotificationActionReceiver.EXTRA_TYPE_OFFSET, typeOffset)
+            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, uniqueNotificationId)
         }
 
-        val requestCode = (taskId * 10000 + requestCodeOffset).toInt()
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            requestCode,
+            uniqueRequestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -74,26 +109,31 @@ object TaskSchedulerHelper {
         }
     }
 
-    fun cancelAllAlerts(context: Context, taskId: Long) {
+    fun cancelSpecificAlert(context: Context, taskId: Long, typeOffset: Int) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val offsets = listOf(1000, 2000, 3000)
+        val uniqueRequestCode = (taskId * 100 + typeOffset).toInt()
 
-        for (offset in offsets) {
-            val intent = Intent(context, NotificationActionReceiver::class.java).apply {
-                action = NotificationActionReceiver.ACTION_TRIGGER_ALERT
-            }
-            val requestCode = (taskId * 10000 + offset).toInt()
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                requestCode,
-                intent,
-                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-            )
-            if (pendingIntent != null) {
-                alarmManager.cancel(pendingIntent)
-                pendingIntent.cancel()
-            }
+        val intent = Intent(context, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_TRIGGER_ALERT
         }
+
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            uniqueRequestCode,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        if (pendingIntent != null) {
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+        }
+    }
+
+    fun cancelAllAlerts(context: Context, taskId: Long) {
+        cancelSpecificAlert(context, taskId, OFFSET_REMINDER)
+        cancelSpecificAlert(context, taskId, OFFSET_DUE)
+        cancelSpecificAlert(context, taskId, OFFSET_REPEAT)
     }
 
     private fun calculateFirstRepeatTrigger(task: TaskItem, now: Long): Long? {
