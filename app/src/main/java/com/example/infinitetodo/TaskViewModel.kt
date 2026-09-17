@@ -131,12 +131,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         return path
     }
 
-    // When moving: exclude self and all descendants to prevent cyclic parent loops.
-    // When copying: ALLOW copying into its own subtask or sub-subtask!
     suspend fun getAllPotentialParents(excludeTaskId: Long, isCopy: Boolean): List<TaskItem> {
         val all = dao.getAllTasksSnapshot()
         if (isCopy) {
-            // In copy mode, allow copying everywhere (including inside own subtasks/sub-subtasks)
             return all.filter { it.id != excludeTaskId }
         }
         val invalidIds = mutableSetOf(excludeTaskId)
@@ -151,7 +148,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         return all.filter { it.id !in invalidIds }
     }
 
-    // Recursively collect all descendant tasks with their hierarchy depth relative to root
     suspend fun getAllDescendantsTree(rootTaskId: Long): List<DescendantNode> {
         val result = mutableListOf<DescendantNode>()
         suspend fun traverse(parentId: Long, depth: Int) {
@@ -369,6 +365,27 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // MULTI-TASK BATCH DELETION
+    fun deleteTasksBatch(taskIds: Set<Long>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (taskIds.isEmpty()) return@launch
+            val allSnapshot = dao.getAllTasksSnapshot()
+            val targets = allSnapshot.filter { it.id in taskIds }
+
+            for (task in targets) {
+                val descendants = getAllDescendants(task.id)
+                val allToDelete = listOf(task) + descendants
+                for (t in allToDelete) {
+                    workManager.cancelAllWorkByTag("TASK_${t.id}")
+                    t.calendarEventId?.let { calId ->
+                        CalendarHelper.deleteEvent(getApplication(), calId)
+                    }
+                    dao.deleteTask(t)
+                }
+            }
+        }
+    }
+
     private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
         val result = mutableListOf<TaskItem>()
         val immediateChildren = dao.getSubtasksSnapshot(parentId)
@@ -430,7 +447,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ADVANCED MOVE WITH ARBITRARY LEVEL SUBTASK SELECTION
     fun executeAdvancedMove(
         task: TaskItem,
         targetParentIds: Set<Long?>,
@@ -462,7 +478,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // Copy to any additional targets if more than one destination was selected
             for (i in 1 until targetList.size) {
                 val extraTarget = targetList[i]
                 deepCopySelectiveRecursive(
@@ -476,7 +491,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ADVANCED COPY: ALLOWS MAIN TASK COPIED TO ITS OWN SUB-TASK OR SUB-SUB-TASK
     fun executeAdvancedCopy(
         task: TaskItem,
         targetParentIds: Set<Long?>,
@@ -523,19 +537,16 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         val newId = dao.insertTask(copy)
         syncTaskToCalendar(copy.copy(id = newId))
 
-        // Copy checklists
         val checklists = dao.getChecklistSnapshot(task.id)
         for (item in checklists) {
             dao.insertChecklistItem(item.copy(id = 0L, taskId = newId, createdTimestamp = now, lastModifiedTimestamp = now))
         }
 
-        // Copy attachments
         val attachments = dao.getAttachmentsSnapshot(task.id)
         for (att in attachments) {
             dao.insertAttachment(att.copy(id = 0L, taskId = newId, createdTimestamp = now, lastModifiedTimestamp = now))
         }
 
-        // Copy subtasks conditionally down through sub-sub and sub-sub-sub tasks
         val children = dao.getSubtasksSnapshot(task.id)
         for (child in children) {
             if (copyAllSubtasks || child.id in selectedSubtaskIds) {
@@ -743,7 +754,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // MULTI-FILE ATTACHMENT BATCH DELETION
     fun deleteAttachmentsBatch(attachments: List<RichAttachment>) {
         viewModelScope.launch(Dispatchers.IO) {
             if (attachments.isEmpty()) return@launch
