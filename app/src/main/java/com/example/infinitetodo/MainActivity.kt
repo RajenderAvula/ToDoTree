@@ -953,7 +953,7 @@ fun HomeDashboardTab(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(
+                        /*Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(end = 4.dp),
@@ -990,7 +990,54 @@ fun HomeDashboardTab(
                                     )
                                 }
                             }
-                        }
+                        }*/
+Row(
+    modifier = Modifier
+        .fillMaxWidth()
+        .padding(top = 2.dp, bottom = 2.dp),
+    horizontalArrangement = Arrangement.SpaceBetween,
+    verticalAlignment = Alignment.CenterVertically
+) {
+    Text(
+        text = "Task Analytics & Metrics Summary",
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.weight(1f)
+    )
+
+    // Box with right/top padding so the badge stays completely inside bounds
+    Box(
+        modifier = Modifier
+            .padding(top = 8.dp, end = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        BadgedBox(
+            badge = {
+                if (todayDueTasks.isNotEmpty()) {
+                    Badge(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                        modifier = Modifier.offset(x = (-4).dp, y = 4.dp)
+                    ) {
+                        Text("${todayDueTasks.size}")
+                    }
+                }
+            }
+        ) {
+            IconButton(
+                onClick = { showTodayNotificationsDialog = true },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = if (todayDueTasks.isNotEmpty()) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
+                    contentDescription = "Today & Overdue Alerts",
+                    tint = if (todayDueTasks.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+    }
+}
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
