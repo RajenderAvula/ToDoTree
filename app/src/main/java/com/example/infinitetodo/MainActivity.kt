@@ -61,12 +61,15 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 val fullDateTimeFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
 val shortDateFormat: SimpleDateFormat = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())
 val dateOnlyFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
 val timeOnlyFormat: SimpleDateFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+
+const val TASKS_PER_PAGE = 10
 
 enum class AppNavTab(val title: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
@@ -247,7 +250,66 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
-// ADVANCED TRANSFER DIALOG (ALL VS SELECTIVE SUBTASKS, COPIES COUNT, MULTI-TARGETS)
+// PAGINATION CONTROLLER WIDGET (10 TASKS PER PAGE)
+// -----------------------------------------------------------------------------------------
+@Composable
+fun TaskPaginationBar(
+    currentPage: Int,
+    totalItems: Int,
+    itemsPerPage: Int = TASKS_PER_PAGE,
+    onPageChange: (Int) -> Unit
+) {
+    val totalPages = remember(totalItems, itemsPerPage) {
+        ceil(totalItems.toDouble() / itemsPerPage).toInt().coerceAtLeast(1)
+    }
+
+    if (totalPages > 1) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = { onPageChange(currentPage - 1) },
+                    enabled = currentPage > 1,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Prev")
+                }
+
+                Text(
+                    text = "Page $currentPage of $totalPages ($totalItems items)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                OutlinedButton(
+                    onClick = { onPageChange(currentPage + 1) },
+                    enabled = currentPage < totalPages,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("Next")
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.AutoMirrored.Filled.ArrowRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// ADVANCED TRANSFER DIALOG (DEEP SUB-SUB-SUB TASKS & INTRA-HIERARCHY SUPPORT)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun AdvancedTaskTransferDialog(
@@ -261,16 +323,16 @@ fun AdvancedTaskTransferDialog(
 
     var moveOrCopyAll by remember { mutableStateOf(true) }
     var selectedSubtaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var immediateSubtasks by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
+    var allDescendantNodes by remember { mutableStateOf<List<DescendantNode>>(emptyList()) }
 
     var numberOfCopies by remember { mutableIntStateOf(1) }
     var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
     var selectedTargetIds by remember { mutableStateOf<Set<Long?>>(emptySet()) }
 
-    LaunchedEffect(task.id) {
+    LaunchedEffect(task.id, isCopy) {
         scope.launch {
-            immediateSubtasks = viewModel.getImmediateSubtasksSnapshot(task.id)
-            potentialParents = viewModel.getAllPotentialParents(task.id)
+            allDescendantNodes = viewModel.getAllDescendantsTree(task.id)
+            potentialParents = viewModel.getAllPotentialParents(task.id, isCopy)
         }
     }
 
@@ -297,45 +359,60 @@ fun AdvancedTaskTransferDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // SECTION 1: ALL VS SELECTIVE SUBTASKS (If task has subtasks)
-                if (immediateSubtasks.isNotEmpty()) {
+                // SECTION 1: ALL VS SELECTIVE SUBTASKS, SUB-SUBTASKS & SUB-SUB-SUBTASKS
+                if (allDescendantNodes.isNotEmpty()) {
                     Text("Subtask Transfer Scope:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = moveOrCopyAll, onClick = { moveOrCopyAll = true })
                         Spacer(Modifier.width(6.dp))
-                        Text("Entire Task with all Subtasks (${immediateSubtasks.size})")
+                        Text("Entire Task with all Subtrees (${allDescendantNodes.size} descendants)")
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !moveOrCopyAll, onClick = { moveOrCopyAll = false })
                         Spacer(Modifier.width(6.dp))
-                        Text("Only specific subtasks")
+                        Text("Select specific subtasks, sub-subtasks...")
                     }
 
                     if (!moveOrCopyAll) {
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth().padding(start = 12.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp)
                         ) {
-                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("Choose subtasks to include:", style = MaterialTheme.typography.labelMedium)
-                                immediateSubtasks.forEach { subtask ->
-                                    val isChecked = subtask.id in selectedSubtaskIds
+                            LazyColumn(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(allDescendantNodes, key = { it.task.id }) { node ->
+                                    val isChecked = node.task.id in selectedSubtaskIds
+                                    val indentPrefix = "—".repeat(node.depthLevel)
+                                    val levelTag = when (node.depthLevel) {
+                                        1 -> "[Sub]"
+                                        2 -> "[Sub-Sub]"
+                                        else -> "[Sub-Sub-Sub]"
+                                    }
+
                                     Row(
-                                        modifier = Modifier.fillMaxWidth().clickable {
-                                            selectedSubtaskIds = if (isChecked) selectedSubtaskIds - subtask.id else selectedSubtaskIds + subtask.id
-                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                selectedSubtaskIds = if (isChecked) selectedSubtaskIds - node.task.id else selectedSubtaskIds + node.task.id
+                                            }
+                                            .padding(start = ((node.depthLevel - 1) * 12).dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Checkbox(
                                             checked = isChecked,
                                             onCheckedChange = {
-                                                selectedSubtaskIds = if (isChecked) selectedSubtaskIds - subtask.id else selectedSubtaskIds + subtask.id
+                                                selectedSubtaskIds = if (isChecked) selectedSubtaskIds - node.task.id else selectedSubtaskIds + node.task.id
                                             }
                                         )
-                                        Text(subtask.title.ifBlank { "Subtask #${subtask.id}" }, style = MaterialTheme.typography.bodySmall)
+                                        Text(
+                                            text = "$indentPrefix $levelTag ${node.task.title.ifBlank { "Task #${node.task.id}" }}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = if (node.depthLevel == 1) FontWeight.Bold else FontWeight.Normal
+                                        )
                                     }
                                 }
                             }
@@ -373,14 +450,18 @@ fun AdvancedTaskTransferDialog(
                     HorizontalDivider()
                 }
 
-                // SECTION 3: SELECT MULTIPLE TARGET DESTINATIONS
+                // SECTION 3: MULTI-TARGET SELECTION (ALLOWS INTRA-HIERARCHY COPYING)
                 Text("Select Target Destination(s):", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                Text("Check one or more places to send the task:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                if (isCopy) {
+                    Text("You can select Root, other tasks, or any of this task's own subtasks/sub-subtasks!", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                }
 
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 240.dp)
                 ) {
                     LazyColumn(modifier = Modifier.padding(6.dp)) {
                         // Root Destination Item
@@ -409,9 +490,13 @@ fun AdvancedTaskTransferDialog(
                             HorizontalDivider()
                         }
 
-                        // Other Tasks Destinations
+                        // Other Tasks & Sub-Tasks Destinations
                         items(potentialParents, key = { it.id }) { parentCandidate ->
                             val isTargetChecked = parentCandidate.id in selectedTargetIds
+                            val isOwnDescendant = remember(allDescendantNodes, parentCandidate.id) {
+                                allDescendantNodes.any { it.task.id == parentCandidate.id }
+                            }
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -429,8 +514,16 @@ fun AdvancedTaskTransferDialog(
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Column {
-                                    Text(parentCandidate.title.ifBlank { "Task #${parentCandidate.id}" }, fontWeight = FontWeight.Medium)
-                                    Text(if (parentCandidate.parentId == null) "Main Task" else "Subtask", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                    Text(
+                                        text = parentCandidate.title.ifBlank { "Task #${parentCandidate.id}" },
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isOwnDescendant) MaterialTheme.colorScheme.secondary else Color.Unspecified
+                                    )
+                                    Text(
+                                        text = if (isOwnDescendant) "[Own Subtask/Descendant in hierarchy]" else if (parentCandidate.parentId == null) "Main Task" else "Subtask",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isOwnDescendant) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline
+                                    )
                                 }
                             }
                         }
@@ -473,7 +566,7 @@ fun AdvancedTaskTransferDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// COMPACT CONTACT QUICK ACTION STRIP (CALL, SMS, WHATSAPP, ALL APPS)
+// COMPACT CONTACT QUICK ACTION STRIP
 // -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
@@ -802,9 +895,6 @@ fun HighlightedText(
     Text(annotated, style = style, fontWeight = fontWeight)
 }
 
-// -----------------------------------------------------------------------------------------
-// COMMON MULTI-CRITERIA FILTER BAR WITH QUICK RESET
-// -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskFilterHeaderBar(
@@ -1048,7 +1138,7 @@ fun TaskFilterHeaderBar(
 }
 
 // -----------------------------------------------------------------------------------------
-// 1. HOME DASHBOARD TAB
+// 1. HOME DASHBOARD TAB (WITH NON-CUTTING NOTIFICATION ICON & 10 TASKS PER PAGE)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
@@ -1061,6 +1151,7 @@ fun HomeDashboardTab(
     val filterState by viewModel.filterState.collectAsState()
 
     var showTodayNotificationsDialog by remember { mutableStateOf(false) }
+    var currentPage by remember { mutableIntStateOf(1) }
 
     val todayDueTasks = remember(allTasks) {
         val endOfTodayMs = Calendar.getInstance().apply {
@@ -1102,13 +1193,18 @@ fun HomeDashboardTab(
         }
     }
 
+    val paginatedTasks = remember(displayedTasks, currentPage) {
+        val startIndex = (currentPage - 1) * TASKS_PER_PAGE
+        displayedTasks.drop(startIndex).take(TASKS_PER_PAGE)
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
 
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
@@ -1117,41 +1213,46 @@ fun HomeDashboardTab(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // ROW WITH FULL SAFE PADDING FOR NOTIFICATION BELL (NO CUT-OFF)
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(end = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = "Task Analytics & Metrics Summary",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f, fill = false)
+                                modifier = Modifier.weight(1f)
                             )
 
-                            IconButton(
-                                onClick = { showTodayNotificationsDialog = true },
-                                modifier = Modifier.padding(end = 6.dp)
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier.padding(start = 8.dp)
                             ) {
-                                BadgedBox(
-                                    badge = {
-                                        if (todayDueTasks.isNotEmpty()) {
-                                            Badge(
-                                                containerColor = MaterialTheme.colorScheme.error,
-                                                contentColor = MaterialTheme.colorScheme.onError
-                                            ) {
-                                                Text("${todayDueTasks.size}")
+                                IconButton(
+                                    onClick = { showTodayNotificationsDialog = true },
+                                    modifier = Modifier.size(42.dp)
+                                ) {
+                                    BadgedBox(
+                                        badge = {
+                                            if (todayDueTasks.isNotEmpty()) {
+                                                Badge(
+                                                    containerColor = MaterialTheme.colorScheme.error,
+                                                    contentColor = MaterialTheme.colorScheme.onError
+                                                ) {
+                                                    Text("${todayDueTasks.size}")
+                                                }
                                             }
                                         }
+                                    ) {
+                                        Icon(
+                                            imageVector = if (todayDueTasks.isNotEmpty()) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
+                                            contentDescription = "Today & Overdue Alerts",
+                                            tint = if (todayDueTasks.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(24.dp)
+                                        )
                                     }
-                                ) {
-                                    Icon(
-                                        imageVector = if (todayDueTasks.isNotEmpty()) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
-                                        contentDescription = "Today & Overdue Alerts",
-                                        tint = if (todayDueTasks.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
                             }
                         }
@@ -1183,7 +1284,7 @@ fun HomeDashboardTab(
                 }
             }
 
-            items(displayedTasks, key = { it.id }) { task ->
+            items(paginatedTasks, key = { it.id }) { task ->
                 val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
                 val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
                 val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
@@ -1314,6 +1415,16 @@ fun HomeDashboardTab(
                     }
                 }
             }
+
+            // PAGINATION FOOTER (10 TASKS PER PAGE)
+            item {
+                TaskPaginationBar(
+                    currentPage = currentPage,
+                    totalItems = displayedTasks.size,
+                    itemsPerPage = TASKS_PER_PAGE,
+                    onPageChange = { currentPage = it }
+                )
+            }
         }
 
         if (showTodayNotificationsDialog) {
@@ -1405,6 +1516,9 @@ fun HomeDashboardTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 2. TASKS TREE TAB (WITH 10 TASKS PER PAGE PAGINATION)
+// -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
     viewModel: TaskViewModel,
@@ -1420,6 +1534,8 @@ fun TasksTreeTab(
     val filterState by viewModel.filterState.collectAsState()
     val context = LocalContext.current
 
+    var currentPage by remember { mutableIntStateOf(1) }
+
     val displayedTasks = remember(rootTasks, searchResults, searchQuery, filterState) {
         val base = if (searchQuery.isNotBlank()) searchResults else rootTasks
         base.filter { task ->
@@ -1431,6 +1547,11 @@ fun TasksTreeTab(
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
         }
+    }
+
+    val paginatedTasks = remember(displayedTasks, currentPage) {
+        val startIndex = (currentPage - 1) * TASKS_PER_PAGE
+        displayedTasks.drop(startIndex).take(TASKS_PER_PAGE)
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1465,7 +1586,7 @@ fun TasksTreeTab(
                 .fillMaxSize()
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-            items(displayedTasks, key = { it.id }) { task ->
+            items(paginatedTasks, key = { it.id }) { task ->
                 TaskNodeView(
                     task = task,
                     depth = 0,
@@ -1478,10 +1599,22 @@ fun TasksTreeTab(
                     onCopyTask = onCopyTask
                 )
             }
+
+            item {
+                TaskPaginationBar(
+                    currentPage = currentPage,
+                    totalItems = displayedTasks.size,
+                    itemsPerPage = TASKS_PER_PAGE,
+                    onPageChange = { currentPage = it }
+                )
+            }
         }
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 3. CALENDAR AGENDA TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun CalendarAgendaTab(
     viewModel: TaskViewModel,
@@ -1605,6 +1738,9 @@ fun CalendarAgendaTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 4. GANTT CHART TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun GanttChartTab(
     viewModel: TaskViewModel,
@@ -1741,6 +1877,9 @@ fun GanttChartTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 5. SETTINGS MANAGER TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun SettingsManagerTab(
     currentTheme: AppThemeMode,
@@ -2405,7 +2544,7 @@ fun FullScreenTaskWorkspaceDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW (DOCKETED HEADER WITH MOVE, COPY, LOCATION, METRICS)
+// SINGLE TASK EDITOR VIEW (WITH MULTI-FILE ATTACHMENT DELETION & DOCKETED HEADER)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -2453,7 +2592,11 @@ fun SingleTaskEditorView(
 
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var itemPendingDeleteChecklist by remember { mutableStateOf<ChecklistItem?>(null) }
-    var itemPendingDeleteAttachment by remember { mutableStateOf<RichAttachment?>(null) }
+
+    // Multi-File Attachment Batch Delete State
+    var selectedAttachmentIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var isAttachmentSelectionMode by remember { mutableStateOf(false) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
 
     val liveChecklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
@@ -2541,15 +2684,18 @@ fun SingleTaskEditorView(
         )
     }
 
-    if (itemPendingDeleteAttachment != null) {
+    if (showBatchDeleteConfirm) {
         DeleteConfirmationDialog(
-            title = "Delete Attachment?",
-            message = "Are you sure you want to remove '${itemPendingDeleteAttachment?.displayName}'?",
+            title = "Delete ${selectedAttachmentIds.size} Attachment(s)?",
+            message = "Are you sure you want to delete the ${selectedAttachmentIds.size} selected attachments permanently?",
             onConfirm = {
-                itemPendingDeleteAttachment?.let { viewModel.deleteAttachment(it) }
-                itemPendingDeleteAttachment = null
+                val toDelete = liveAttachments.filter { it.id in selectedAttachmentIds }
+                viewModel.deleteAttachmentsBatch(toDelete)
+                selectedAttachmentIds = emptySet()
+                isAttachmentSelectionMode = false
+                showBatchDeleteConfirm = false
             },
-            onDismiss = { itemPendingDeleteAttachment = null }
+            onDismiss = { showBatchDeleteConfirm = false }
         )
     }
 
@@ -3540,9 +3686,63 @@ fun SingleTaskEditorView(
                 }
             }
 
+            // =========================================================================================
+            // ATTACHMENTS CARD WITH MULTI-FILE BATCH SELECTION & DELETION
+            // =========================================================================================
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
+
+                        if (liveAttachments.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isAttachmentSelectionMode) {
+                                    TextButton(
+                                        onClick = {
+                                            if (selectedAttachmentIds.size == liveAttachments.size) {
+                                                selectedAttachmentIds = emptySet()
+                                            } else {
+                                                selectedAttachmentIds = liveAttachments.map { it.id }.toSet()
+                                            }
+                                        }
+                                    ) {
+                                        Text(if (selectedAttachmentIds.size == liveAttachments.size) "Deselect All" else "Select All")
+                                    }
+
+                                    if (selectedAttachmentIds.isNotEmpty()) {
+                                        Button(
+                                            onClick = { showBatchDeleteConfirm = true },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Delete (${selectedAttachmentIds.size})")
+                                        }
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            isAttachmentSelectionMode = false
+                                            selectedAttachmentIds = emptySet()
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Cancel Select Mode")
+                                    }
+                                } else {
+                                    TextButton(onClick = { isAttachmentSelectionMode = true }) {
+                                        Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Select Multiple")
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { filePickerLauncher.launch(arrayOf("*/*")) }) {
@@ -3620,11 +3820,15 @@ fun SingleTaskEditorView(
                     liveAttachments.forEach { att ->
                         var isAttachmentNoteExpanded by remember { mutableStateOf(false) }
                         var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
+                        val isSelected = att.id in selectedAttachmentIds
 
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
+                                .padding(vertical = 4.dp)
+                                .then(
+                                    if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier
+                                ),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         ) {
                             Column(
@@ -3633,59 +3837,74 @@ fun SingleTaskEditorView(
                                     .padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (att.type == AttachmentType.CONTACT && !att.contactPhone.isNullOrBlank()) {
-                                    ContactActionRow(
-                                        displayName = att.displayName,
-                                        phoneNumber = att.contactPhone,
-                                        isPending = att.isContactPending,
-                                        onTogglePending = {
-                                            viewModel.updateAttachment(
-                                                att,
-                                                att.displayName,
-                                                att.notes,
-                                                att.contactPhone,
-                                                !att.isContactPending
-                                            )
-                                        }
-                                    )
-                                } else {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                try {
-                                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                        setDataAndType(Uri.parse(att.uriString), "*/*")
-                                                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                    }
-                                                    context.startActivity(intent)
-                                                } catch (_: Exception) {
-                                                    Toast.makeText(context, "Cannot preview file", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = when (att.type) {
-                                                AttachmentType.VIDEO -> Icons.Default.Videocam
-                                                AttachmentType.AUDIO -> Icons.Default.Mic
-                                                AttachmentType.CONTACT -> Icons.Default.Person
-                                                AttachmentType.IMAGE -> Icons.Default.Image
-                                                AttachmentType.FILE -> Icons.Default.AttachFile
-                                            },
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(26.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isAttachmentSelectionMode) {
+                                        Checkbox(
+                                            checked = isSelected,
+                                            onCheckedChange = {
+                                                selectedAttachmentIds = if (isSelected) selectedAttachmentIds - att.id else selectedAttachmentIds + att.id
+                                            }
                                         )
-                                        Spacer(Modifier.width(12.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                    }
 
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = att.displayName,
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
+                                    if (att.type == AttachmentType.CONTACT && !att.contactPhone.isNullOrBlank()) {
+                                        ContactActionRow(
+                                            displayName = att.displayName,
+                                            phoneNumber = att.contactPhone,
+                                            isPending = att.isContactPending,
+                                            onTogglePending = {
+                                                viewModel.updateAttachment(
+                                                    att,
+                                                    att.displayName,
+                                                    att.notes,
+                                                    att.contactPhone,
+                                                    !att.isContactPending
+                                                )
+                                            }
+                                        )
+                                    } else {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    try {
+                                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                            setDataAndType(Uri.parse(att.uriString), "*/*")
+                                                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                                        }
+                                                        context.startActivity(intent)
+                                                    } catch (_: Exception) {
+                                                        Toast.makeText(context, "Cannot preview file", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = when (att.type) {
+                                                    AttachmentType.VIDEO -> Icons.Default.Videocam
+                                                    AttachmentType.AUDIO -> Icons.Default.Mic
+                                                    AttachmentType.CONTACT -> Icons.Default.Person
+                                                    AttachmentType.IMAGE -> Icons.Default.Image
+                                                    AttachmentType.FILE -> Icons.Default.AttachFile
+                                                },
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(26.dp)
                                             )
+                                            Spacer(Modifier.width(12.dp))
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = att.displayName,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -3715,7 +3934,9 @@ fun SingleTaskEditorView(
                                         IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveAttachment(att, false) }) {
                                             Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
                                         }
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { itemPendingDeleteAttachment = att }) {
+                                        IconButton(modifier = Modifier.size(32.dp), onClick = {
+                                            viewModel.deleteAttachment(att)
+                                        }) {
                                             Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                         }
                                     }
