@@ -48,9 +48,6 @@ class BackupRestoreManager(private val context: Context) {
                     put("locationName", t.locationName ?: JSONObject.NULL)
                     put("latitude", t.latitude ?: JSONObject.NULL)
                     put("longitude", t.longitude ?: JSONObject.NULL)
-                    put("contactName", t.contactName ?: JSONObject.NULL)
-                    put("contactPhone", t.contactPhone ?: JSONObject.NULL)
-                    put("contactEmail", t.contactEmail ?: JSONObject.NULL)
                     put("voiceRecordingPath", t.voiceRecordingPath ?: JSONObject.NULL)
                     put("orderIndex", t.orderIndex)
                     put("linkedTaskIds", t.linkedTaskIds ?: JSONObject.NULL)
@@ -118,12 +115,13 @@ class BackupRestoreManager(private val context: Context) {
                 try {
                     val uri = Uri.parse(att.uriString)
                     context.contentResolver.openInputStream(uri)?.use { inStream ->
-                        zipOut.putNextEntry(ZipEntry("files/att_${att.id}_${att.displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")}"))
+                        val safeName = att.displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+                        zipOut.putNextEntry(ZipEntry("files/att_${att.id}_$safeName"))
                         inStream.copyTo(zipOut)
                         zipOut.closeEntry()
                     }
                 } catch (_: Exception) {
-                    // Ignore content URIs that are revoked or no longer accessible
+                    // Ignore content URIs that cannot be opened
                 }
             }
 
@@ -202,7 +200,6 @@ class BackupRestoreManager(private val context: Context) {
             val idMapping = mutableMapOf<Long, Long>()
             val remainingTasks = taskObjs.toMutableList()
 
-            // Pass 1 to N: Insert parent tasks first, then dependent child tasks
             var iterations = 0
             while (remainingTasks.isNotEmpty() && iterations < 50) {
                 iterations++
@@ -212,7 +209,6 @@ class BackupRestoreManager(private val context: Context) {
                     val oldId = obj.getLong("id")
                     val oldParentId = if (obj.isNull("parentId")) null else obj.getLong("parentId")
 
-                    // Can insert if it's root OR its parent has already been inserted and mapped
                     if (oldParentId == null || idMapping.containsKey(oldParentId)) {
                         val mappedParentId = if (oldParentId != null) idMapping[oldParentId] else null
 
@@ -252,9 +248,6 @@ class BackupRestoreManager(private val context: Context) {
                             locationName = if (obj.isNull("locationName")) null else obj.getString("locationName"),
                             latitude = if (obj.isNull("latitude")) null else obj.getDouble("latitude"),
                             longitude = if (obj.isNull("longitude")) null else obj.getDouble("longitude"),
-                            contactName = if (obj.isNull("contactName")) null else obj.getString("contactName"),
-                            contactPhone = if (obj.isNull("contactPhone")) null else obj.getString("contactPhone"),
-                            contactEmail = if (obj.isNull("contactEmail")) null else obj.getString("contactEmail"),
                             voiceRecordingPath = voicePath,
                             orderIndex = obj.optInt("orderIndex", 0),
                             linkedTaskIds = if (obj.isNull("linkedTaskIds")) null else obj.getString("linkedTaskIds")
@@ -267,7 +260,7 @@ class BackupRestoreManager(private val context: Context) {
                 }
             }
 
-            // If any orphan tasks remain due to missing parents, insert as root tasks
+            // Insert any orphan tasks as roots
             for (obj in remainingTasks) {
                 val oldId = obj.getLong("id")
                 val taskItem = TaskItem(
@@ -301,7 +294,7 @@ class BackupRestoreManager(private val context: Context) {
                 dao.insertAllChecklistItems(newChecklists)
             }
 
-            // 4. Insert rich attachments
+            // 4. Insert rich attachments (including contacts)
             val newAttachments = mutableListOf<RichAttachment>()
             for (i in 0 until attachmentsArray.length()) {
                 val obj = attachmentsArray.getJSONObject(i)
@@ -310,7 +303,8 @@ class BackupRestoreManager(private val context: Context) {
                 val oldId = obj.getLong("id")
                 val displayName = obj.optString("displayName", "Attachment")
 
-                val zipKey = "files/att_${oldId}_${displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")}"
+                val safeName = displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+                val zipKey = "files/att_${oldId}_$safeName"
                 val targetUri = fileMap[zipKey] ?: obj.optString("uriString", "")
 
                 val typeStr = obj.optString("type", AttachmentType.FILE.name)
