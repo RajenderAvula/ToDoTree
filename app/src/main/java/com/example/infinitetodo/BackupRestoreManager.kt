@@ -48,7 +48,6 @@ class BackupRestoreManager(private val context: Context) {
                     put("locationName", t.locationName ?: JSONObject.NULL)
                     put("latitude", t.latitude ?: JSONObject.NULL)
                     put("longitude", t.longitude ?: JSONObject.NULL)
-                    put("voiceRecordingPath", t.voiceRecordingPath ?: JSONObject.NULL)
                     put("orderIndex", t.orderIndex)
                     put("linkedTaskIds", t.linkedTaskIds ?: JSONObject.NULL)
                 }
@@ -93,35 +92,34 @@ class BackupRestoreManager(private val context: Context) {
             zipOut.write(rootJson.toString(2).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            // 2. Package voice recordings
-            for (t in tasks) {
-                val voice = t.voiceRecordingPath
-                if (!voice.isNullOrBlank()) {
-                    val file = File(voice)
-                    if (file.exists() && file.isFile) {
-                        try {
-                            zipOut.putNextEntry(ZipEntry("voice_${file.name}"))
-                            file.inputStream().use { it.copyTo(zipOut) }
+            // 2. Package attachments (Audio files, videos, documents)
+            for (att in attachments) {
+                if (att.type == AttachmentType.CONTACT) continue
+
+                val safeName = att.displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+                val entryPath = "files/att_${att.id}_$safeName"
+
+                try {
+                    val rawUri = att.uriString
+                    if (rawUri.startsWith("/")) {
+                        val localFile = File(rawUri)
+                        if (localFile.exists() && localFile.isFile) {
+                            zipOut.putNextEntry(ZipEntry(entryPath))
+                            localFile.inputStream().use { inStream ->
+                                inStream.copyTo(zipOut)
+                            }
                             zipOut.closeEntry()
-                        } catch (e: Exception) {
-                            Log.w("BackupManager", "Skipping voice file: ${file.name}", e)
+                        }
+                    } else {
+                        val parsedUri = Uri.parse(rawUri)
+                        context.contentResolver.openInputStream(parsedUri)?.use { inStream ->
+                            zipOut.putNextEntry(ZipEntry(entryPath))
+                            inStream.copyTo(zipOut)
+                            zipOut.closeEntry()
                         }
                     }
-                }
-            }
-
-            // 3. Package local files/attachments
-            for (att in attachments) {
-                try {
-                    val uri = Uri.parse(att.uriString)
-                    context.contentResolver.openInputStream(uri)?.use { inStream ->
-                        val safeName = att.displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
-                        zipOut.putNextEntry(ZipEntry("files/att_${att.id}_$safeName"))
-                        inStream.copyTo(zipOut)
-                        zipOut.closeEntry()
-                    }
-                } catch (_: Exception) {
-                    // Ignore content URIs that cannot be opened
+                } catch (e: Exception) {
+                    Log.w("BackupManager", "Skipping attachment ${att.displayName}", e)
                 }
             }
 
@@ -153,7 +151,6 @@ class BackupRestoreManager(private val context: Context) {
             var entry: ZipEntry? = zipIn.nextEntry
             var metadataJsonString: String? = null
             val restoredFilesDir = File(context.filesDir, "restored_attachments").apply { mkdirs() }
-            val restoredVoiceDir = File(context.filesDir, "restored_voices").apply { mkdirs() }
 
             val fileMap = mutableMapOf<String, String>()
 
@@ -163,15 +160,13 @@ class BackupRestoreManager(private val context: Context) {
                     val baos = ByteArrayOutputStream()
                     zipIn.copyTo(baos)
                     metadataJsonString = baos.toString(Charsets.UTF_8.name())
-                } else if (entryName.startsWith("voice_")) {
-                    val targetVoice = File(restoredVoiceDir, entryName)
-                    targetVoice.outputStream().use { zipIn.copyTo(it) }
-                    fileMap[entryName] = targetVoice.absolutePath
                 } else if (entryName.startsWith("files/")) {
                     val cleanFileName = entryName.substringAfter("files/")
                     val targetFile = File(restoredFilesDir, cleanFileName)
-                    targetFile.outputStream().use { zipIn.copyTo(it) }
-                    fileMap[entryName] = Uri.fromFile(targetFile).toString()
+                    targetFile.outputStream().use { fileOut ->
+                        zipIn.copyTo(fileOut)
+                    }
+                    fileMap[entryName] = targetFile.absolutePath
                 }
                 zipIn.closeEntry()
                 entry = zipIn.nextEntry
@@ -191,7 +186,7 @@ class BackupRestoreManager(private val context: Context) {
             // 1. Clear database
             dao.clearAllTasks()
 
-            // 2. Insert tasks hierarchy by layers (roots first, then children to respect Foreign Keys)
+            // 2. Insert tasks hierarchy by layers (roots first, then children to avoid Foreign Key violations)
             val taskObjs = mutableListOf<JSONObject>()
             for (i in 0 until tasksArray.length()) {
                 taskObjs.add(tasksArray.getJSONObject(i))
@@ -211,14 +206,6 @@ class BackupRestoreManager(private val context: Context) {
 
                     if (oldParentId == null || idMapping.containsKey(oldParentId)) {
                         val mappedParentId = if (oldParentId != null) idMapping[oldParentId] else null
-
-                        var voicePath = if (obj.isNull("voiceRecordingPath")) null else obj.getString("voiceRecordingPath")
-                        if (voicePath != null) {
-                            val voiceFileName = "voice_" + File(voicePath).name
-                            if (fileMap.containsKey(voiceFileName)) {
-                                voicePath = fileMap[voiceFileName]
-                            }
-                        }
 
                         val priorityStr = obj.optString("priority", TaskPriority.MEDIUM.name)
                         val priority = try { TaskPriority.valueOf(priorityStr) } catch (_: Exception) { TaskPriority.MEDIUM }
@@ -248,7 +235,6 @@ class BackupRestoreManager(private val context: Context) {
                             locationName = if (obj.isNull("locationName")) null else obj.getString("locationName"),
                             latitude = if (obj.isNull("latitude")) null else obj.getDouble("latitude"),
                             longitude = if (obj.isNull("longitude")) null else obj.getDouble("longitude"),
-                            voiceRecordingPath = voicePath,
                             orderIndex = obj.optInt("orderIndex", 0),
                             linkedTaskIds = if (obj.isNull("linkedTaskIds")) null else obj.getString("linkedTaskIds")
                         )
@@ -260,7 +246,7 @@ class BackupRestoreManager(private val context: Context) {
                 }
             }
 
-            // Insert any orphan tasks as roots
+            // Insert any orphan tasks as root tasks
             for (obj in remainingTasks) {
                 val oldId = obj.getLong("id")
                 val taskItem = TaskItem(
@@ -294,7 +280,7 @@ class BackupRestoreManager(private val context: Context) {
                 dao.insertAllChecklistItems(newChecklists)
             }
 
-            // 4. Insert rich attachments (including contacts)
+            // 4. Insert rich attachments
             val newAttachments = mutableListOf<RichAttachment>()
             for (i in 0 until attachmentsArray.length()) {
                 val obj = attachmentsArray.getJSONObject(i)
@@ -305,7 +291,7 @@ class BackupRestoreManager(private val context: Context) {
 
                 val safeName = displayName.replace("[^a-zA-Z0-9._-]".toRegex(), "_")
                 val zipKey = "files/att_${oldId}_$safeName"
-                val targetUri = fileMap[zipKey] ?: obj.optString("uriString", "")
+                val targetPath = fileMap[zipKey] ?: obj.optString("uriString", "")
 
                 val typeStr = obj.optString("type", AttachmentType.FILE.name)
                 val attType = try { AttachmentType.valueOf(typeStr) } catch (_: Exception) { AttachmentType.FILE }
@@ -314,7 +300,7 @@ class BackupRestoreManager(private val context: Context) {
                     RichAttachment(
                         taskId = newTaskId,
                         type = attType,
-                        uriString = targetUri,
+                        uriString = targetPath,
                         displayName = displayName,
                         notes = if (obj.isNull("notes")) null else obj.getString("notes"),
                         contactPhone = if (obj.isNull("contactPhone")) null else obj.getString("contactPhone"),
