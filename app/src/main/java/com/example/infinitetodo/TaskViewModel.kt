@@ -36,6 +36,11 @@ data class FilterCriteria(
     val dueToMs: Long? = null
 )
 
+data class DescendantNode(
+    val task: TaskItem,
+    val depthLevel: Int
+)
+
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.getDatabase(application).taskDao()
     private val workManager = WorkManager.getInstance(application)
@@ -126,8 +131,14 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         return path
     }
 
-    suspend fun getAllPotentialParents(excludeTaskId: Long): List<TaskItem> {
+    // When moving: exclude self and all descendants to prevent cyclic parent loops.
+    // When copying: ALLOW copying into its own subtask or sub-subtask!
+    suspend fun getAllPotentialParents(excludeTaskId: Long, isCopy: Boolean): List<TaskItem> {
         val all = dao.getAllTasksSnapshot()
+        if (isCopy) {
+            // In copy mode, allow copying everywhere (including inside own subtasks/sub-subtasks)
+            return all.filter { it.id != excludeTaskId }
+        }
         val invalidIds = mutableSetOf(excludeTaskId)
         fun collectDescendants(parentId: Long) {
             val children = all.filter { it.parentId == parentId }
@@ -140,8 +151,18 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         return all.filter { it.id !in invalidIds }
     }
 
-    suspend fun getImmediateSubtasksSnapshot(parentId: Long): List<TaskItem> {
-        return dao.getSubtasksSnapshot(parentId)
+    // Recursively collect all descendant tasks with their hierarchy depth relative to root
+    suspend fun getAllDescendantsTree(rootTaskId: Long): List<DescendantNode> {
+        val result = mutableListOf<DescendantNode>()
+        suspend fun traverse(parentId: Long, depth: Int) {
+            val children = dao.getSubtasksSnapshot(parentId)
+            for (child in children) {
+                result.add(DescendantNode(child, depth))
+                traverse(child.id, depth + 1)
+            }
+        }
+        traverse(rootTaskId, 1)
+        return result
     }
 
     fun backupToDevice(destinationStream: OutputStream, onComplete: (Boolean) -> Unit) {
@@ -409,6 +430,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ADVANCED MOVE WITH ARBITRARY LEVEL SUBTASK SELECTION
     fun executeAdvancedMove(
         task: TaskItem,
         targetParentIds: Set<Long?>,
@@ -432,14 +454,15 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             syncTaskToCalendar(updated)
 
             if (!moveAllSubtasks) {
-                val allChildren = dao.getSubtasksSnapshot(task.id)
-                for (child in allChildren) {
-                    if (child.id !in selectedSubtaskIds) {
-                        dao.updateTask(child.copy(parentId = task.parentId, lastModifiedTimestamp = now))
+                val allDescendants = getAllDescendantsTree(task.id)
+                for (node in allDescendants) {
+                    if (node.task.id !in selectedSubtaskIds) {
+                        dao.updateTask(node.task.copy(parentId = task.parentId, lastModifiedTimestamp = now))
                     }
                 }
             }
 
+            // Copy to any additional targets if more than one destination was selected
             for (i in 1 until targetList.size) {
                 val extraTarget = targetList[i]
                 deepCopySelectiveRecursive(
@@ -453,6 +476,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ADVANCED COPY: ALLOWS MAIN TASK COPIED TO ITS OWN SUB-TASK OR SUB-SUB-TASK
     fun executeAdvancedCopy(
         task: TaskItem,
         targetParentIds: Set<Long?>,
@@ -499,16 +523,19 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         val newId = dao.insertTask(copy)
         syncTaskToCalendar(copy.copy(id = newId))
 
+        // Copy checklists
         val checklists = dao.getChecklistSnapshot(task.id)
         for (item in checklists) {
             dao.insertChecklistItem(item.copy(id = 0L, taskId = newId, createdTimestamp = now, lastModifiedTimestamp = now))
         }
 
+        // Copy attachments
         val attachments = dao.getAttachmentsSnapshot(task.id)
         for (att in attachments) {
             dao.insertAttachment(att.copy(id = 0L, taskId = newId, createdTimestamp = now, lastModifiedTimestamp = now))
         }
 
+        // Copy subtasks conditionally down through sub-sub and sub-sub-sub tasks
         val children = dao.getSubtasksSnapshot(task.id)
         for (child in children) {
             if (copyAllSubtasks || child.id in selectedSubtaskIds) {
@@ -713,6 +740,18 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             dao.deleteAttachment(attachment)
             touchTask(attachment.taskId)
+        }
+    }
+
+    // MULTI-FILE ATTACHMENT BATCH DELETION
+    fun deleteAttachmentsBatch(attachments: List<RichAttachment>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (attachments.isEmpty()) return@launch
+            val taskId = attachments.first().taskId
+            for (att in attachments) {
+                dao.deleteAttachment(att)
+            }
+            touchTask(taskId)
         }
     }
 
