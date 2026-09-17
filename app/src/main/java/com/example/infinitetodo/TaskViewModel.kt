@@ -4,10 +4,14 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.Data
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -16,24 +20,24 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 data class FilterCriteria(
     val priorities: Set<TaskPriority> = emptySet(),
     val statusPending: Boolean? = null,
     val mustHaveContact: Boolean = false,
+    val mustHaveLocation: Boolean = false,
+    val selectedLocations: Set<String> = emptySet(),
     val selectedTags: Set<String> = emptySet(),
     val createdFromMs: Long? = null,
     val createdToMs: Long? = null,
     val dueFromMs: Long? = null,
-    val dueToMs: Long? = null,
-
-    // Location Filters
-    val mustHaveLocation: Boolean = false,
-    val selectedLocations: Set<String> = emptySet()
+    val dueToMs: Long? = null
 )
 
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.getDatabase(application).taskDao()
+    private val workManager = WorkManager.getInstance(application)
     private val backupRestoreManager = BackupRestoreManager(application)
 
     val rootTasks: Flow<List<TaskItem>> = dao.getRootTasks()
@@ -50,26 +54,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         _filterState.value = FilterCriteria()
     }
 
-    // Reactive flow of tasks that have reminder, due date, or repeat scheduled up to end of today
-    val todayDueOrReminderTasks: Flow<List<TaskItem>> = allTasksFlow.map { tasks ->
-        val endOfTodayMs = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 23)
-            set(Calendar.MINUTE, 59)
-            set(Calendar.SECOND, 59)
-            set(Calendar.MILLISECOND, 999)
-        }.timeInMillis
-
-        tasks.filter { task ->
-            if (task.isCompleted) return@filter false
-
-            val hasDueTodayOrPast = task.dueTimestamp != null && task.dueTimestamp <= endOfTodayMs
-            val hasReminderTodayOrPast = task.reminderTimestamp != null && task.reminderTimestamp <= endOfTodayMs
-            val hasRepeatActive = task.repeatRule != RecurrenceRule.NONE && (task.repeatStartDate == null || task.repeatStartDate <= endOfTodayMs)
-
-            hasDueTodayOrPast || hasReminderTodayOrPast || hasRepeatActive
-        }
-    }
-
     fun getSubtasks(parentId: Long): Flow<List<TaskItem>> = dao.getSubtasks(parentId)
     fun getSubtaskCount(parentId: Long): Flow<Int> = dao.getSubtaskCount(parentId)
     fun getChecklist(taskId: Long): Flow<List<ChecklistItem>> = dao.getChecklistForTask(taskId)
@@ -77,36 +61,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     fun searchTasks(query: String): Flow<List<TaskItem>> = dao.searchTasks(query)
 
     suspend fun getTaskById(taskId: Long): TaskItem? = dao.getTaskById(taskId)
-
-    fun linkTasksBidirectional(taskAId: Long, taskBId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val taskA = dao.getTaskById(taskAId) ?: return@launch
-            val taskB = dao.getTaskById(taskBId) ?: return@launch
-
-            val setA = taskA.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
-            setA.add(taskBId.toString())
-            dao.updateTask(taskA.copy(linkedTaskIds = setA.joinToString(","), lastModifiedTimestamp = System.currentTimeMillis()))
-
-            val setB = taskB.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
-            setB.add(taskAId.toString())
-            dao.updateTask(taskB.copy(linkedTaskIds = setB.joinToString(","), lastModifiedTimestamp = System.currentTimeMillis()))
-        }
-    }
-
-    fun unlinkTasksBidirectional(taskAId: Long, taskBId: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val taskA = dao.getTaskById(taskAId) ?: return@launch
-            val taskB = dao.getTaskById(taskBId) ?: return@launch
-
-            val setA = taskA.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
-            setA.remove(taskBId.toString())
-            dao.updateTask(taskA.copy(linkedTaskIds = setA.joinToString(","), lastModifiedTimestamp = System.currentTimeMillis()))
-
-            val setB = taskB.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
-            setB.remove(taskAId.toString())
-            dao.updateTask(taskB.copy(linkedTaskIds = setB.joinToString(","), lastModifiedTimestamp = System.currentTimeMillis()))
-        }
-    }
 
     suspend fun getAllUniqueTags(): List<String> {
         val all = dao.getAllTasksSnapshot()
@@ -122,14 +76,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun getAllUniqueLocations(): List<String> {
         val all = dao.getAllTasksSnapshot()
-        val set = mutableSetOf<String>()
-        for (t in all) {
-            t.locationName?.let { loc ->
-                val clean = loc.trim()
-                if (clean.isNotEmpty()) set.add(clean)
-            }
-        }
-        return set.sorted()
+        return all.mapNotNull { it.locationName?.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
     }
 
     suspend fun getDescendantLayersCount(taskId: Long): Int {
@@ -162,19 +109,39 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun getHierarchyPathString(taskId: Long): String {
-        val trail = mutableListOf<TaskItem>()
-        var currentId: Long? = taskId
+        val trail = getBreadcrumbTrail(taskId)
+        return trail.joinToString(" ➔ ") { it.title.ifBlank { "Task #${it.id}" } }
+    }
+
+    suspend fun getBreadcrumbTrail(leafTaskId: Long?): List<TaskItem> {
+        if (leafTaskId == null) return emptyList()
+        val path = mutableListOf<TaskItem>()
+        var currentId: Long? = leafTaskId
         while (currentId != null) {
             val task = dao.getTaskById(currentId) ?: break
-            trail.add(0, task)
+            path.add(0, task)
             currentId = task.parentId
         }
-        return trail.joinToString(" ➔ ") { it.title.ifBlank { "Task #${it.id}" } }
+        return path
     }
 
     suspend fun getAllPotentialParents(excludeTaskId: Long): List<TaskItem> {
         val all = dao.getAllTasksSnapshot()
-        return all.filter { it.id != excludeTaskId }
+        // Prevent moving/copying into self or any of its own descendants
+        val invalidIds = mutableSetOf(excludeTaskId)
+        fun collectDescendants(parentId: Long) {
+            val children = all.filter { it.parentId == parentId }
+            for (c in children) {
+                invalidIds.add(c.id)
+                collectDescendants(c.id)
+            }
+        }
+        collectDescendants(excludeTaskId)
+        return all.filter { it.id !in invalidIds }
+    }
+
+    suspend fun getImmediateSubtasksSnapshot(parentId: Long): List<TaskItem> {
+        return dao.getSubtasksSnapshot(parentId)
     }
 
     fun backupToDevice(destinationStream: OutputStream, onComplete: (Boolean) -> Unit) {
@@ -211,100 +178,6 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    suspend fun buildTaskHierarchySchemaText(taskId: Long): String {
-        val rootTask = dao.getTaskById(taskId) ?: return ""
-        val sb = StringBuilder()
-        val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-
-        val path = getHierarchyPathString(taskId)
-        sb.append("📋 TASK EXPORT SCHEMA\n")
-        sb.append("Hierarchy Path: $path\n")
-        sb.append("======================================\n\n")
-
-        suspend fun appendNode(node: TaskItem, indentLevel: Int) {
-            val indent = "  ".repeat(indentLevel)
-            val statusSymbol = if (node.isCompleted) "[COMPLETED ✓]" else "[PENDING]"
-            sb.append("${indent}● ${node.title.ifBlank { "Untitled" }} $statusSymbol\n")
-            sb.append("${indent}  - Priority: ${node.priority.name}\n")
-            sb.append("${indent}  - Created: ${dateFormat.format(Date(node.createdTimestamp))}\n")
-
-            if (!node.tags.isNullOrBlank()) {
-                sb.append("${indent}  - Tags: ${node.tags}\n")
-            }
-
-            if (!node.locationName.isNullOrBlank() || (node.latitude != null && node.longitude != null)) {
-                val locTitle = node.locationName ?: "Pinned Location"
-                sb.append("${indent}  - 📍 Location: $locTitle\n")
-                if (node.latitude != null && node.longitude != null) {
-                    sb.append("${indent}    Map Link: https://maps.google.com/?q=${node.latitude},${node.longitude}\n")
-                }
-            }
-
-            if (!node.notes.isNullOrBlank()) {
-                sb.append("${indent}  - Notes: ${node.notes}\n")
-            }
-
-            val checklists = dao.getChecklistSnapshot(node.id)
-            if (checklists.isNotEmpty()) {
-                sb.append("${indent}  - Checklists:\n")
-                checklists.forEach { chk ->
-                    val chkBox = if (chk.isDone) "[x]" else "[ ]"
-                    sb.append("${indent}    $chkBox ${chk.text}\n")
-                }
-            }
-
-            val attachments = dao.getAttachmentsSnapshot(node.id)
-            if (attachments.isNotEmpty()) {
-                sb.append("${indent}  - Attachments/Contacts:\n")
-                attachments.forEach { att ->
-                    val phoneInfo = if (att.contactPhone != null) " (${att.contactPhone})" else ""
-                    sb.append("${indent}    * [${att.type}] ${att.displayName}$phoneInfo\n")
-                }
-            }
-
-            sb.append("\n")
-
-            val children = dao.getSubtasksSnapshot(node.id)
-            for (child in children) {
-                appendNode(child, indentLevel + 1)
-            }
-        }
-
-        appendNode(rootTask, 0)
-        return sb.toString()
-    }
-
-    fun shareTaskData(context: Context, taskId: Long, targetPackage: String? = null) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val schemaText = buildTaskHierarchySchemaText(taskId)
-            val task = dao.getTaskById(taskId)
-            val subject = "Task Schema: ${task?.title ?: "Export"}"
-
-            val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, subject)
-                putExtra(Intent.EXTRA_TEXT, schemaText)
-                if (targetPackage != null) {
-                    `package` = targetPackage
-                }
-            }
-
-            withContext(Dispatchers.Main) {
-                try {
-                    if (targetPackage != null) {
-                        context.startActivity(sendIntent)
-                    } else {
-                        val chooser = Intent.createChooser(sendIntent, "Share Task via")
-                        context.startActivity(chooser)
-                    }
-                } catch (_: Exception) {
-                    val chooser = Intent.createChooser(sendIntent, "Share Task via")
-                    context.startActivity(chooser)
-                }
-            }
-        }
-    }
-
     suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
@@ -313,9 +186,8 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasPermission) return false
 
         return try {
-            val target = CalendarHelper.getPrimaryGoogleCalendar(getApplication()) ?: return false
             val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-            val createdEpochMs = task.createdTimestamp
+            val syncCreatedEpochMs = task.createdTimestamp
 
             val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
             val hierarchyPrefix = if (parentTask != null) "[Subtask of '${parentTask.title}'] " else "[Main Task] "
@@ -327,10 +199,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
             val notesBody = task.notes ?: ""
             val tagsSummary = if (!task.tags.isNullOrBlank()) "Tags: [${task.tags}]\n" else ""
-            val locSummary = if (!task.locationName.isNullOrBlank() || (task.latitude != null && task.longitude != null)) {
-                "Location: ${task.locationName ?: "Coordinates: ${task.latitude}, ${task.longitude}"}\n"
-            } else ""
-
+            val locSummary = if (!task.locationName.isNullOrBlank()) "Location: ${task.locationName}\n" else ""
             val chkSummary = if (checklists.isNotEmpty()) {
                 "\n\nChecklist:\n" + checklists.joinToString("\n") { (if (it.isDone) "✓ " else "○ ") + it.text }
             } else ""
@@ -338,34 +207,33 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 "\n\nAttachments & Contacts:\n" + attachments.joinToString("\n") { "- [${it.type}] ${it.displayName}" }
             } else ""
 
-            val auditNote = "Created: ${dateFormat.format(Date(createdEpochMs))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
+            val auditNote = "Created Stamp: ${dateFormat.format(Date(syncCreatedEpochMs))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
             val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name}\n" else ""
-            val fullDescription = "$auditNote$tagsSummary$locSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
+            val fullDescription = "$auditNote$locSummary$tagsSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
 
-            var updatedSuccessfully = false
-            val currentEventAlive = task.calendarEventId != null && CalendarHelper.eventExists(getApplication(), task.calendarEventId!!)
-
-            if (currentEventAlive) {
-                updatedSuccessfully = CalendarHelper.updateEvent(
+            if (task.calendarEventId != null) {
+                CalendarHelper.updateEvent(
                     context = getApplication(),
-                    target = target,
-                    eventId = task.calendarEventId!!,
+                    eventId = task.calendarEventId,
                     title = fullCalendarTitle,
                     notes = fullDescription,
-                    createdTimestampMs = createdEpochMs
+                    startTimeMs = syncCreatedEpochMs,
+                    isAllDay = false
                 )
-            }
-
-            if (!updatedSuccessfully) {
-                val newEventId = CalendarHelper.insertEvent(
-                    context = getApplication(),
-                    target = target,
-                    title = fullCalendarTitle,
-                    createdTimestampMs = createdEpochMs,
-                    notes = fullDescription
-                )
-                if (newEventId != null) {
-                    dao.updateTask(task.copy(calendarEventId = newEventId))
+            } else {
+                val calId = CalendarHelper.getPrimaryGoogleCalendarId(getApplication())
+                if (calId != null) {
+                    val newEventId = CalendarHelper.insertEvent(
+                        context = getApplication(),
+                        calendarId = calId,
+                        title = fullCalendarTitle,
+                        startTimeMs = syncCreatedEpochMs,
+                        notes = fullDescription,
+                        isAllDay = false
+                    )
+                    if (newEventId != null) {
+                        dao.updateTask(task.copy(calendarEventId = newEventId))
+                    }
                 }
             }
             true
@@ -447,62 +315,50 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             dao.updateTask(updated)
             syncTaskToCalendar(updated)
 
-            // Schedule alarms with isolated channels (Reminders, Due Dates, and Repeats)
-            TaskSchedulerHelper.scheduleAllAlerts(getApplication(), updated)
+            workManager.cancelAllWorkByTag("TASK_${task.id}")
+            if (reminderEpochMs != null && reminderEpochMs > System.currentTimeMillis()) {
+                scheduleReminder(task.id, title, reminderEpochMs)
+            }
         }
     }
 
     fun toggleTaskCompletion(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            val newCompletionState = !task.isCompleted
             val now = System.currentTimeMillis()
-            val completedTime = if (newCompletionState) now else null
-
-            val allDescendants = getAllDescendants(task.id)
-            val allTasksToUpdate = listOf(task) + allDescendants
-
-            for (item in allTasksToUpdate) {
-                val updated = item.copy(
-                    isCompleted = newCompletionState,
-                    completedTimestamp = completedTime,
-                    lastModifiedTimestamp = now
-                )
-                dao.updateTask(updated)
-                syncTaskToCalendar(updated)
-
-                if (newCompletionState) {
-                    TaskSchedulerHelper.cancelAllAlerts(getApplication(), item.id)
-                } else {
-                    TaskSchedulerHelper.scheduleAllAlerts(getApplication(), updated)
-                }
-            }
+            val newCompleted = !task.isCompleted
+            val updated = task.copy(
+                isCompleted = newCompleted,
+                completedTimestamp = if (newCompleted) now else null,
+                lastModifiedTimestamp = now
+            )
+            dao.updateTask(updated)
+            syncTaskToCalendar(updated)
         }
-    }
-
-    private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
-        val result = mutableListOf<TaskItem>()
-        val directChildren = dao.getSubtasksSnapshot(parentId)
-        for (child in directChildren) {
-            result.add(child)
-            result.addAll(getAllDescendants(child.id))
-        }
-        return result
     }
 
     fun deleteTask(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val allDescendants = getAllDescendants(task.id)
-            val allToDelete = listOf(task) + allDescendants
+            val allTasksToDelete = listOf(task) + allDescendants
 
-            for (t in allToDelete) {
-                TaskSchedulerHelper.cancelAllAlerts(getApplication(), t.id)
+            for (t in allTasksToDelete) {
+                workManager.cancelAllWorkByTag("TASK_${t.id}")
                 t.calendarEventId?.let { calEventId ->
                     CalendarHelper.deleteEvent(getApplication(), calEventId)
                 }
             }
-
             dao.deleteTask(task)
         }
+    }
+
+    private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
+        val result = mutableListOf<TaskItem>()
+        val immediateChildren = dao.getSubtasksSnapshot(parentId)
+        for (child in immediateChildren) {
+            result.add(child)
+            result.addAll(getAllDescendants(child.id))
+        }
+        return result
     }
 
     fun moveTaskVertical(task: TaskItem, directionUp: Boolean) {
@@ -556,59 +412,199 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun moveTaskToTarget(task: TaskItem, newParentId: Long?) {
+    // ADVANCED MOVE: MULTI-TARGET & SELECTIVE SUBTASKS
+    fun executeAdvancedMove(
+        task: TaskItem,
+        targetParentIds: Set<Long?>,
+        moveAllSubtasks: Boolean,
+        selectedSubtaskIds: Set<Long>
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val siblings = dao.getSubtasksSnapshot(newParentId)
+            if (targetParentIds.isEmpty()) return@launch
+
+            // If multiple targets were selected for move, the original task moves to the first target,
+            // and copies of it are made into any additional targets.
+            val targetList = targetParentIds.toList()
+            val primaryTarget = targetList.first()
+
+            val now = System.currentTimeMillis()
+            val siblings = dao.getSubtasksSnapshot(primaryTarget)
             val updated = task.copy(
-                parentId = newParentId,
+                parentId = primaryTarget,
                 orderIndex = siblings.size,
-                lastModifiedTimestamp = System.currentTimeMillis()
+                lastModifiedTimestamp = now
             )
             dao.updateTask(updated)
             syncTaskToCalendar(updated)
+
+            if (!moveAllSubtasks) {
+                val allChildren = dao.getSubtasksSnapshot(task.id)
+                for (child in allChildren) {
+                    if (child.id !in selectedSubtaskIds) {
+                        // Keep unselected subtasks under the original parent or re-parent to root
+                        dao.updateTask(child.copy(parentId = task.parentId, lastModifiedTimestamp = now))
+                    }
+                }
+            }
+
+            // Copy to any subsequent targets if more than one destination was picked
+            for (i in 1 until targetList.size) {
+                val extraTarget = targetList[i]
+                deepCopySelectiveRecursive(
+                    task = task,
+                    newParentId = extraTarget,
+                    copyAllSubtasks = moveAllSubtasks,
+                    selectedSubtaskIds = selectedSubtaskIds,
+                    copyIndex = 1
+                )
+            }
         }
     }
 
-    fun copyTaskToTarget(taskId: Long, targetParentId: Long?) {
+    // ADVANCED COPY: MULTI-TARGET, MULTI-COPIES & SELECTIVE SUBTASKS
+    fun executeAdvancedCopy(
+        task: TaskItem,
+        targetParentIds: Set<Long?>,
+        numberOfCopies: Int,
+        copyAllSubtasks: Boolean,
+        selectedSubtaskIds: Set<Long>
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
-            val original = dao.getTaskById(taskId) ?: return@launch
-            deepCopyRecursive(original, targetParentId)
+            val count = numberOfCopies.coerceAtLeast(1)
+            for (targetParentId in targetParentIds) {
+                for (copyNum in 1..count) {
+                    deepCopySelectiveRecursive(
+                        task = task,
+                        newParentId = targetParentId,
+                        copyAllSubtasks = copyAllSubtasks,
+                        selectedSubtaskIds = selectedSubtaskIds,
+                        copyIndex = copyNum
+                    )
+                }
+            }
         }
     }
 
-    private suspend fun deepCopyRecursive(task: TaskItem, newParentId: Long?) {
+    private suspend fun deepCopySelectiveRecursive(
+        task: TaskItem,
+        newParentId: Long?,
+        copyAllSubtasks: Boolean,
+        selectedSubtaskIds: Set<Long>,
+        copyIndex: Int
+    ) {
         val siblings = dao.getSubtasksSnapshot(newParentId)
-        val copyTitle = "${task.title} (Copy)"
+        val copyTitle = if (copyIndex > 1) "${task.title} (Copy $copyIndex)" else "${task.title} (Copy)"
+        val now = System.currentTimeMillis()
+
         val copy = task.copy(
             id = 0L,
             parentId = newParentId,
             title = copyTitle,
             calendarEventId = null,
             orderIndex = siblings.size,
-            createdTimestamp = System.currentTimeMillis(),
-            lastModifiedTimestamp = System.currentTimeMillis()
+            createdTimestamp = now,
+            lastModifiedTimestamp = now
         )
         val newId = dao.insertTask(copy)
-        val createdCopy = copy.copy(id = newId)
-        syncTaskToCalendar(createdCopy)
-        TaskSchedulerHelper.scheduleAllAlerts(getApplication(), createdCopy)
+        syncTaskToCalendar(copy.copy(id = newId))
 
+        // Copy checklists
         val checklists = dao.getChecklistSnapshot(task.id)
         for (item in checklists) {
-            dao.insertChecklistItem(item.copy(id = 0L, taskId = newId))
+            dao.insertChecklistItem(item.copy(id = 0L, taskId = newId, createdTimestamp = now, lastModifiedTimestamp = now))
         }
 
+        // Copy attachments
         val attachments = dao.getAttachmentsSnapshot(task.id)
         for (att in attachments) {
-            dao.insertAttachment(att.copy(id = 0L, taskId = newId))
+            dao.insertAttachment(att.copy(id = 0L, taskId = newId, createdTimestamp = now, lastModifiedTimestamp = now))
         }
 
+        // Copy subtasks conditionally
         val children = dao.getSubtasksSnapshot(task.id)
         for (child in children) {
-            deepCopyRecursive(child, newId)
+            if (copyAllSubtasks || child.id in selectedSubtaskIds) {
+                deepCopySelectiveRecursive(
+                    task = child,
+                    newParentId = newId,
+                    copyAllSubtasks = copyAllSubtasks,
+                    selectedSubtaskIds = selectedSubtaskIds,
+                    copyIndex = 1
+                )
+            }
         }
     }
 
+    fun linkTasksBidirectional(taskId1: Long, taskId2: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val t1 = dao.getTaskById(taskId1) ?: return@launch
+            val t2 = dao.getTaskById(taskId2) ?: return@launch
+
+            val list1 = t1.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            list1.add(taskId2.toString())
+
+            val list2 = t2.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            list2.add(taskId1.toString())
+
+            dao.updateTask(t1.copy(linkedTaskIds = list1.joinToString(",")))
+            dao.updateTask(t2.copy(linkedTaskIds = list2.joinToString(",")))
+        }
+    }
+
+    fun unlinkTasksBidirectional(taskId1: Long, taskId2: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val t1 = dao.getTaskById(taskId1) ?: return@launch
+            val t2 = dao.getTaskById(taskId2) ?: return@launch
+
+            val list1 = t1.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            list1.remove(taskId2.toString())
+
+            val list2 = t2.linkedTaskIds?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+            list2.remove(taskId1.toString())
+
+            dao.updateTask(t1.copy(linkedTaskIds = list1.joinToString(",")))
+            dao.updateTask(t2.copy(linkedTaskIds = list2.joinToString(",")))
+        }
+    }
+
+    fun shareTaskData(context: Context, taskId: Long, targetPackage: String? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val task = dao.getTaskById(taskId) ?: return@launch
+            val checklists = dao.getChecklistSnapshot(taskId)
+            val attachments = dao.getAttachmentsSnapshot(taskId)
+
+            val shareText = buildString {
+                append("📌 Task: ${task.title}\n")
+                if (!task.notes.isNullOrBlank()) append("Notes: ${task.notes}\n")
+                if (!task.locationName.isNullOrBlank()) append("📍 Location: ${task.locationName}\n")
+                append("Priority: ${task.priority.name}\n")
+                if (checklists.isNotEmpty()) {
+                    append("\nChecklist:\n")
+                    checklists.forEach { append("- ${if (it.isDone) "✓" else "○"} ${it.text}\n") }
+                }
+                if (attachments.isNotEmpty()) {
+                    append("\nContacts & Attachments:\n")
+                    attachments.forEach { append("- [${it.type}] ${it.displayName} ${it.contactPhone ?: ""}\n") }
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, task.title)
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                    if (targetPackage != null) setPackage(targetPackage)
+                }
+                try {
+                    context.startActivity(Intent.createChooser(intent, "Share Task via"))
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Could not open selected app", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // CHECKLIST CRUD
     fun addChecklistItem(taskId: Long, text: String, notes: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val items = dao.getChecklistSnapshot(taskId)
@@ -676,6 +672,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ATTACHMENT CRUD
     fun addAttachment(
         taskId: Long,
         type: AttachmentType,
@@ -754,5 +751,21 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             dao.updateTask(updated)
             syncTaskToCalendar(updated)
         }
+    }
+
+    private fun scheduleReminder(taskId: Long, title: String, triggerAtEpochMs: Long) {
+        val delay = triggerAtEpochMs - System.currentTimeMillis()
+        val workData = Data.Builder()
+            .putLong("TASK_ID", taskId)
+            .putString("TASK_TITLE", title)
+            .build()
+
+        val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
+            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+            .setInputData(workData)
+            .addTag("TASK_$taskId")
+            .build()
+
+        workManager.enqueue(request)
     }
 }
