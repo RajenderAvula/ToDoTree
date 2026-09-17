@@ -2814,7 +2814,6 @@ fun FullScreenTaskWorkspaceDialog(
         }
     }
 }
-
 // -----------------------------------------------------------------------------------------
 // SINGLE TASK EDITOR VIEW
 // -----------------------------------------------------------------------------------------
@@ -3979,57 +3978,101 @@ fun SingleTaskEditorView(
             }
 
             // =========================================================================================
-            // ATTACHMENTS CARD WITH MULTI-FILE BATCH SELECTION & DELETION
+            // ATTACHMENTS CARD WITH DEDICATED MULTI-SELECT ACTION BANNER
             // =========================================================================================
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Header Row with Title and Multi-Select Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Files, Videos, Audios & Contacts",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
 
-                        if (liveAttachments.isNotEmpty()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (isAttachmentSelectionMode) {
+                        if (liveAttachments.isNotEmpty() && !isAttachmentSelectionMode) {
+                            TextButton(onClick = { isAttachmentSelectionMode = true }) {
+                                Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Select Multiple")
+                            }
+                        }
+                    }
+
+                    // Full-Width Multi-Select Banner: completely prevents right-edge button clipping
+                    AnimatedVisibility(visible = isAttachmentSelectionMode) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "${selectedAttachmentIds.size} selected",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                    Spacer(Modifier.width(6.dp))
                                     TextButton(
                                         onClick = {
-                                            if (selectedAttachmentIds.size == liveAttachments.size) {
-                                                selectedAttachmentIds = emptySet()
+                                            selectedAttachmentIds = if (selectedAttachmentIds.size == liveAttachments.size) {
+                                                emptySet()
                                             } else {
-                                                selectedAttachmentIds = liveAttachments.map { it.id }.toSet()
+                                                liveAttachments.map { it.id }.toSet()
                                             }
-                                        }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
-                                        Text(if (selectedAttachmentIds.size == liveAttachments.size) "Deselect All" else "Select All")
+                                        Text(
+                                            text = if (selectedAttachmentIds.size == liveAttachments.size) "Deselect All" else "Select All",
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
                                     }
+                                }
 
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     if (selectedAttachmentIds.isNotEmpty()) {
                                         Button(
                                             onClick = { showBatchDeleteConfirm = true },
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                         ) {
                                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
                                             Spacer(Modifier.width(4.dp))
-                                            Text("Delete (${selectedAttachmentIds.size})")
+                                            Text("Delete (${selectedAttachmentIds.size})", style = MaterialTheme.typography.labelSmall)
                                         }
                                     }
 
-                                    IconButton(
+                                    OutlinedButton(
                                         onClick = {
                                             isAttachmentSelectionMode = false
                                             selectedAttachmentIds = emptySet()
-                                        }
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                     ) {
-                                        Icon(Icons.Default.Close, contentDescription = "Cancel Select Mode")
-                                    }
-                                } else {
-                                    TextButton(onClick = { isAttachmentSelectionMode = true }) {
-                                        Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("Select Multiple")
+                                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(Modifier.width(2.dp))
+                                        Text("Cancel", style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
                             }
@@ -4257,3 +4300,5 @@ fun SingleTaskEditorView(
         }
     }
 }
+
+// -----------------------------------------------------------------------------                                          
