@@ -8,9 +8,6 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.Data
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -19,7 +16,6 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.TimeUnit
 
 data class FilterCriteria(
     val priorities: Set<TaskPriority> = emptySet(),
@@ -38,7 +34,6 @@ data class FilterCriteria(
 
 class TaskViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = AppDatabase.getDatabase(application).taskDao()
-    private val workManager = WorkManager.getInstance(application)
     private val backupRestoreManager = BackupRestoreManager(application)
 
     val rootTasks: Flow<List<TaskItem>> = dao.getRootTasks()
@@ -428,32 +423,17 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             dao.updateTask(updated)
             syncTaskToCalendar(updated)
 
-            workManager.cancelAllWorkByTag("TASK_${task.id}")
-            if (reminderEpochMs != null && reminderEpochMs > System.currentTimeMillis()) {
-                scheduleReminder(task.id, title, reminderEpochMs)
-            }
+            // Schedule exact alarms for reminders, due dates, and recurrence
+            TaskSchedulerHelper.scheduleAllAlerts(getApplication(), updated)
         }
     }
 
-    /*fun toggleTaskCompletion(task: TaskItem) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val now = System.currentTimeMillis()
-            val updated = task.copy(
-                isCompleted = !task.isCompleted,
-                lastModifiedTimestamp = now
-            )
-            dao.updateTask(updated)
-            syncTaskToCalendar(updated)
-        }
-    }*/
-    // 1. Update toggleTaskCompletion to find and update all descendants
     fun toggleTaskCompletion(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val newCompletionState = !task.isCompleted
             val now = System.currentTimeMillis()
             val completedTime = if (newCompletionState) now else null
 
-            // Fetch all nested subtasks under this task recursively
             val allDescendants = getAllDescendants(task.id)
             val allTasksToUpdate = listOf(task) + allDescendants
 
@@ -465,55 +445,41 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 dao.updateTask(updated)
                 syncTaskToCalendar(updated)
+
+                if (newCompletionState) {
+                    TaskSchedulerHelper.cancelAllAlerts(getApplication(), item.id)
+                } else {
+                    TaskSchedulerHelper.scheduleAllAlerts(getApplication(), updated)
+                }
             }
         }
     }
 
-    // 2. Add this helper function inside TaskViewModel
     private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
         val result = mutableListOf<TaskItem>()
-        val directChildren = dao.getSubtasksSync(parentId)
+        val directChildren = dao.getSubtasksSnapshot(parentId)
         for (child in directChildren) {
             result.add(child)
             result.addAll(getAllDescendants(child.id))
         }
         return result
     }
-/**
-     * Recursively deletes the main task and every nested child from:
-     * 1. WorkManager notification queue
-     * 2. Google Calendar via CalendarContract
-     * 3. Local Room Database
-     */
+
     fun deleteTask(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Collect all children, grandchildren, etc.
             val allDescendants = getAllDescendants(task.id)
             val allToDelete = listOf(task) + allDescendants
 
-            // Clean up calendar events & local notification alarms for all of them
             for (t in allToDelete) {
-                workManager.cancelAllWorkByTag("TASK_${t.id}")
+                TaskSchedulerHelper.cancelAllAlerts(getApplication(), t.id)
                 t.calendarEventId?.let { calEventId ->
                     CalendarHelper.deleteEvent(getApplication(), calEventId)
                 }
             }
 
-            // Room CASCADE handles child rows in DB once parent is deleted
             dao.deleteTask(task)
         }
     }
-
- /*   private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
-        val result = mutableListOf<TaskItem>()
-        val immediateChildren = dao.getSubtasksSync(parentId)
-        for (child in immediateChildren) {
-            result.add(child)
-            result.addAll(getAllDescendants(child.id))
-        }
-        return result
-    }*/
-    
 
     fun moveTaskVertical(task: TaskItem, directionUp: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -599,7 +565,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             lastModifiedTimestamp = System.currentTimeMillis()
         )
         val newId = dao.insertTask(copy)
-        syncTaskToCalendar(copy.copy(id = newId))
+        val createdCopy = copy.copy(id = newId)
+        syncTaskToCalendar(createdCopy)
+        TaskSchedulerHelper.scheduleAllAlerts(getApplication(), createdCopy)
 
         val checklists = dao.getChecklistSnapshot(task.id)
         for (item in checklists) {
@@ -762,21 +730,5 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             dao.updateTask(updated)
             syncTaskToCalendar(updated)
         }
-    }
-
-    private fun scheduleReminder(taskId: Long, title: String, triggerAtEpochMs: Long) {
-        val delay = triggerAtEpochMs - System.currentTimeMillis()
-        val workData = Data.Builder()
-            .putLong("TASK_ID", taskId)
-            .putString("TASK_TITLE", title)
-            .build()
-
-        val request = OneTimeWorkRequestBuilder<TaskReminderWorker>()
-            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
-            .setInputData(workData)
-            .addTag("TASK_$taskId")
-            .build()
-
-        workManager.enqueue(request)
     }
 }
