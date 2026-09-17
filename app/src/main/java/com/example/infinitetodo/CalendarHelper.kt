@@ -25,10 +25,11 @@ object CalendarHelper {
             CalendarContract.Calendars.ACCOUNT_NAME,
             CalendarContract.Calendars.ACCOUNT_TYPE,
             CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
-            CalendarContract.Calendars.VISIBLE
+            CalendarContract.Calendars.VISIBLE,
+            CalendarContract.Calendars.SYNC_EVENTS
         )
         val uri = CalendarContract.Calendars.CONTENT_URI
-        var googleTarget: CalendarTarget? = null
+
         var fallbackTarget: CalendarTarget? = null
 
         try {
@@ -53,39 +54,8 @@ object CalendarHelper {
         } catch (e: Exception) {
             Log.e("CalendarHelper", "Error resolving calendar target", e)
         }
-        return googleTarget ?: fallbackTarget
-    }
 
-    fun eventExists(context: Context, eventId: Long): Boolean {
-        return try {
-            val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
-            val projection = arrayOf(CalendarContract.Events._ID, CalendarContract.Events.DELETED)
-            val cursor = context.contentResolver.query(uri, projection, null, null, null)
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    val deletedCol = it.getColumnIndex(CalendarContract.Events.DELETED)
-                    val isDeleted = if (deletedCol != -1) it.getInt(deletedCol) == 1 else false
-                    !isDeleted
-                } else {
-                    false
-                }
-            } ?: false
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun calculateSafeEndTime(startTimeMs: Long, requestedDurationMs: Long = 1800000L): Long {
-        val cal = Calendar.getInstance().apply {
-            timeInMillis = startTimeMs
-            set(Calendar.HOUR_OF_DAY, 23)
-            set(Calendar.MINUTE, 59)
-            set(Calendar.SECOND, 59)
-            set(Calendar.MILLISECOND, 999)
-        }
-        val endOfDayMs = cal.timeInMillis
-        val naturalEnd = startTimeMs + requestedDurationMs
-        return if (naturalEnd > endOfDayMs) endOfDayMs else naturalEnd
+        return fallbackTarget
     }
 
     fun insertEvent(
@@ -97,8 +67,8 @@ object CalendarHelper {
     ): Long? {
         return try {
             val startTime = createdTimestampMs
-            val endTime = calculateSafeEndTime(startTime, 1800000L)
-            val localTimeZone = TimeZone.getDefault().id
+            val endTime = createdTimestampMs + 3600000L
+            val timeZone = TimeZone.getDefault().id
 
             val values = ContentValues().apply {
                 put(CalendarContract.Events.CALENDAR_ID, target.id)
@@ -107,7 +77,7 @@ object CalendarHelper {
                 put(CalendarContract.Events.DTSTART, startTime)
                 put(CalendarContract.Events.DTEND, endTime)
                 put(CalendarContract.Events.ALL_DAY, 0)
-                put(CalendarContract.Events.EVENT_TIMEZONE, localTimeZone)
+                put(CalendarContract.Events.EVENT_TIMEZONE, timeZone)
                 put(CalendarContract.Events.STATUS, CalendarContract.Events.STATUS_CONFIRMED)
                 put(CalendarContract.Events.AVAILABILITY, CalendarContract.Events.AVAILABILITY_BUSY)
             }
@@ -118,6 +88,7 @@ object CalendarHelper {
             if (eventId != null && target.accountType.equals("com.google", ignoreCase = true)) {
                 triggerGoogleCalendarSync(target.accountName)
             }
+
             eventId
         } catch (e: Exception) {
             Log.e("CalendarHelper", "Insert event error", e)
@@ -132,31 +103,30 @@ object CalendarHelper {
         title: String,
         notes: String?,
         createdTimestampMs: Long
-    ): Boolean {
-        return try {
+    ) {
+        try {
             val startTime = createdTimestampMs
-            val endTime = calculateSafeEndTime(startTime, 1800000L)
-            val localTimeZone = TimeZone.getDefault().id
+            val endTime = createdTimestampMs + 3600000L
+            val timeZone = TimeZone.getDefault().id
 
             val values = ContentValues().apply {
                 put(CalendarContract.Events.TITLE, title)
-                put(CalendarContract.Events.DESCRIPTION, notes ?: "")
+                if (notes != null) {
+                    put(CalendarContract.Events.DESCRIPTION, notes)
+                }
                 put(CalendarContract.Events.DTSTART, startTime)
                 put(CalendarContract.Events.DTEND, endTime)
-                put(CalendarContract.Events.ALL_DAY, 0)
-                put(CalendarContract.Events.EVENT_TIMEZONE, localTimeZone)
+                put(CalendarContract.Events.EVENT_TIMEZONE, timeZone)
             }
 
             val updateUri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
-            val rows = context.contentResolver.update(updateUri, values, null, null)
+            context.contentResolver.update(updateUri, values, null, null)
 
-            if (rows > 0 && target.accountType.equals("com.google", ignoreCase = true)) {
+            if (target.accountType.equals("com.google", ignoreCase = true)) {
                 triggerGoogleCalendarSync(target.accountName)
             }
-            rows > 0
         } catch (e: Exception) {
             Log.e("CalendarHelper", "Update event error", e)
-            false
         }
     }
 
