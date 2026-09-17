@@ -63,11 +63,10 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
-// Universal Date/Time Formatters available across all Composables
-val fullDateTimeFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())[span_1](start_span)[span_1](end_span)
-val shortDateFormat: SimpleDateFormat = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())[span_2](start_span)[span_2](end_span)
-val dateOnlyFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())[span_3](start_span)[span_3](end_span)
-val timeOnlyFormat: SimpleDateFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())[span_4](start_span)[span_4](end_span)
+val fullDateTimeFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+val shortDateFormat: SimpleDateFormat = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())
+val dateOnlyFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+val timeOnlyFormat: SimpleDateFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
 
 enum class AppNavTab(val title: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
@@ -75,15 +74,15 @@ enum class AppNavTab(val title: String, val icon: ImageVector) {
     CALENDAR("Calendar", Icons.Default.CalendarMonth),
     GANTT("Gantt", Icons.Default.Timeline),
     SETTINGS("Settings", Icons.Default.Settings)
-}[span_5](start_span)[span_5](end_span)
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             val context = LocalContext.current
-            var currentTheme by remember { mutableStateOf(ThemePreferences.getTheme(context)) }[span_6](start_span)[span_6](end_span)
-            var currentViewMode by remember { mutableStateOf(ThemePreferences.getViewMode(context)) }[span_7](start_span)[span_7](end_span)
+            var currentTheme by remember { mutableStateOf(ThemePreferences.getTheme(context)) }
+            var currentViewMode by remember { mutableStateOf(ThemePreferences.getViewMode(context)) }
 
             InfiniteTodoTheme(
                 themeMode = currentTheme,
@@ -122,14 +121,14 @@ fun MainAppScaffold(
     viewMode: TaskViewMode,
     onViewModeChange: (TaskViewMode) -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(AppNavTab.HOME) }[span_8](start_span)[span_8](end_span)
-    var activeFullScreenTask by remember { mutableStateOf<TaskItem?>(null) }[span_9](start_span)[span_9](end_span)
-    val scope = rememberCoroutineScope()[span_10](start_span)[span_10](end_span)
+    var selectedTab by remember { mutableStateOf(AppNavTab.HOME) }
+    var activeFullScreenTask by remember { mutableStateOf<TaskItem?>(null) }
+    val scope = rememberCoroutineScope()
 
-    var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }[span_11](start_span)[span_11](end_span)
-    var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }[span_12](start_span)[span_12](end_span)
+    var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }
+    var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }
 
-    val context = LocalContext.current[span_13](start_span)[span_13](end_span)
+    val context = LocalContext.current
 
     val permissionsToRequest = remember {
         val list = mutableListOf(
@@ -145,15 +144,15 @@ fun MainAppScaffold(
             list.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         list.toTypedArray()
-    }[span_14](start_span)[span_14](end_span)
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { }[span_15](start_span)[span_15](end_span)
+    ) { }
 
     LaunchedEffect(Unit) {
         permissionLauncher.launch(permissionsToRequest)
-    }[span_16](start_span)[span_16](end_span)
+    }
 
     Scaffold(
         bottomBar = {
@@ -174,8 +173,8 @@ fun MainAppScaffold(
                 FloatingActionButton(
                     onClick = {
                         scope.launch {
-                            val draft = viewModel.createInitialDraftTask(null)[span_17](start_span)[span_17](end_span)[span_18](start_span)[span_18](end_span)
-                            activeFullScreenTask = draft[span_19](start_span)[span_19](end_span)
+                            val draft = viewModel.createInitialDraftTask(null)
+                            activeFullScreenTask = draft
                         }
                     },
                     containerColor = MaterialTheme.colorScheme.primary,
@@ -201,8 +200,8 @@ fun MainAppScaffold(
                     viewMode = viewMode,
                     onAddSubtask = { parentId ->
                         scope.launch {
-                            val draft = viewModel.createInitialDraftTask(parentId)[span_20](start_span)[span_20](end_span)[span_21](start_span)[span_21](end_span)
-                            activeFullScreenTask = draft[span_22](start_span)[span_22](end_span)
+                            val draft = viewModel.createInitialDraftTask(parentId)
+                            activeFullScreenTask = draft
                         }
                     },
                     onOpenFullScreen = { task -> activeFullScreenTask = task },
@@ -244,9 +243,9 @@ fun MainAppScaffold(
                 viewModel = viewModel,
                 onDismiss = { taskForTargetMove = null },
                 onSelectTarget = { targetParentId ->
-                    viewModel.moveTaskToTarget(movingTask, targetParentId)[span_23](start_span)[span_23](end_span)[span_24](start_span)[span_24](end_span)
-                    taskForTargetMove = null[span_25](start_span)[span_25](end_span)
-                    Toast.makeText(context, "Task moved successfully", Toast.LENGTH_SHORT).show()[span_26](start_span)[span_26](end_span)
+                    viewModel.moveTaskToTarget(movingTask, targetParentId)
+                    taskForTargetMove = null
+                    Toast.makeText(context, "Task moved successfully", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -258,9 +257,9 @@ fun MainAppScaffold(
                 viewModel = viewModel,
                 onDismiss = { taskForTargetCopy = null },
                 onSelectTarget = { targetParentId ->
-                    viewModel.copyTaskToTarget(copyingTask.id, targetParentId)[span_27](start_span)[span_27](end_span)[span_28](start_span)[span_28](end_span)
-                    taskForTargetCopy = null[span_29](start_span)[span_29](end_span)
-                    Toast.makeText(context, "Task copied successfully", Toast.LENGTH_SHORT).show()[span_30](start_span)[span_30](end_span)
+                    viewModel.copyTaskToTarget(copyingTask.id, targetParentId)
+                    taskForTargetCopy = null
+                    Toast.makeText(context, "Task copied successfully", Toast.LENGTH_SHORT).show()
                 }
             )
         }
@@ -277,8 +276,8 @@ fun ContactActionRow(
     isPending: Boolean,
     onTogglePending: (() -> Unit)? = null
 ) {
-    val context = LocalContext.current[span_31](start_span)[span_31](end_span)
-    var showExtraMenu by remember { mutableStateOf(false) }[span_32](start_span)[span_32](end_span)
+    val context = LocalContext.current
+    var showExtraMenu by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
@@ -437,7 +436,6 @@ fun TaskMetadataStatusRow(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 1. Completion status chip
         if (isCompleted) {
             val doneDate = completedTimestamp ?: lastModifiedTimestamp
             Surface(
@@ -464,7 +462,6 @@ fun TaskMetadataStatusRow(
                 }
             }
         } else {
-            // 2. Due date chip
             dueTimestamp?.let { due ->
                 val isOverdue = due < System.currentTimeMillis()
                 Surface(
@@ -493,7 +490,6 @@ fun TaskMetadataStatusRow(
             }
         }
 
-        // 3. Reminder chip
         reminderTimestamp?.let { rem ->
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
@@ -515,7 +511,6 @@ fun TaskMetadataStatusRow(
             }
         }
 
-        // 4. Recurrence chip
         if (repeatRule != RecurrenceRule.NONE) {
             Surface(
                 color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f),
@@ -903,7 +898,6 @@ fun HomeDashboardTab(
 
     var showTodayNotificationsDialog by remember { mutableStateOf(false) }
 
-    // Dynamic tasks due, repeated, or scheduled for reminder till end of today
     val todayDueTasks = remember(allTasks) {
         val endOfTodayMs = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 23)
@@ -962,7 +956,7 @@ fun HomeDashboardTab(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(end = 4.dp), // Safe margin to eliminate edge clipping
+                                .padding(end = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -973,7 +967,6 @@ fun HomeDashboardTab(
                                 modifier = Modifier.weight(1f, fill = false)
                             )
 
-                            // Unclipped Bell Icon with Badge
                             IconButton(
                                 onClick = { showTodayNotificationsDialog = true },
                                 modifier = Modifier.padding(end = 6.dp)
@@ -1027,14 +1020,14 @@ fun HomeDashboardTab(
             }
 
             items(displayedTasks, key = { it.id }) { task ->
-                val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)[span_33](start_span)[span_33](end_span)[span_34](start_span)[span_34](end_span)
-                val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())[span_35](start_span)[span_35](end_span)[span_36](start_span)[span_36](end_span)
-                val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }[span_37](start_span)[span_37](end_span)
+                val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
+                val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
+                val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
 
-                var hierarchyPath by remember { mutableStateOf("") }[span_38](start_span)[span_38](end_span)
-                val scope = rememberCoroutineScope()[span_39](start_span)[span_39](end_span)
+                var hierarchyPath by remember { mutableStateOf("") }
+                val scope = rememberCoroutineScope()
                 LaunchedEffect(task.id) {
-                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }[span_40](start_span)[span_40](end_span)[span_41](start_span)[span_41](end_span)
+                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
                 }
 
                 Card(
@@ -1055,7 +1048,7 @@ fun HomeDashboardTab(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                            PriorityBadge(task.priority)[span_42](start_span)[span_42](end_span)
+                            PriorityBadge(task.priority)
                             if (subtaskCount > 0) {
                                 Spacer(Modifier.width(8.dp))
                                 Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(4.dp)) {
@@ -1067,7 +1060,7 @@ fun HomeDashboardTab(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(
                                 checked = task.isCompleted,
-                                onCheckedChange = { viewModel.toggleTaskCompletion(task) }[span_43](start_span)[span_43](end_span)[span_44](start_span)[span_44](end_span)
+                                onCheckedChange = { viewModel.toggleTaskCompletion(task) }
                             )
                             Spacer(Modifier.width(6.dp))
                             Column(
@@ -1082,7 +1075,7 @@ fun HomeDashboardTab(
                                         textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
                                     ),
                                     fontWeight = FontWeight.SemiBold
-                                )[span_45](start_span)[span_45](end_span)
+                                )
 
                                 if (!task.tags.isNullOrBlank()) {
                                     Text(
@@ -1098,7 +1091,7 @@ fun HomeDashboardTab(
                                         text = task.notes,
                                         query = searchQuery,
                                         style = MaterialTheme.typography.bodySmall
-                                    )[span_46](start_span)[span_46](end_span)
+                                    )
                                 }
                             }
                             IconButton(
@@ -1109,7 +1102,7 @@ fun HomeDashboardTab(
                             }
                         }
 
-                        TaskMetadataStatusRow(task)[span_47](start_span)[span_47](end_span)
+                        TaskMetadataStatusRow(task)
 
                         if (!task.locationName.isNullOrBlank()) {
                             Surface(
@@ -1134,7 +1127,7 @@ fun HomeDashboardTab(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 contacts.forEach { contact ->
-                                    val phone = contact.contactPhone ?: "[span_48](start_span)"[span_48](end_span)
+                                    val phone = contact.contactPhone ?: ""
                                     if (phone.isNotBlank()) {
                                         ContactActionRow(
                                             displayName = contact.displayName,
@@ -1147,9 +1140,9 @@ fun HomeDashboardTab(
                                                     contact.notes,
                                                     contact.contactPhone,
                                                     !contact.isContactPending
-                                                )[span_49](start_span)[span_49](end_span)[span_50](start_span)[span_50](end_span)
+                                                )
                                             }
-                                        )[span_51](start_span)[span_51](end_span)
+                                        )
                                     }
                                 }
                             }
@@ -1159,7 +1152,6 @@ fun HomeDashboardTab(
             }
         }
 
-        // Dialog displaying ALL active scheduled components (Due, Reminder, and Repeat)
         if (showTodayNotificationsDialog) {
             AlertDialog(
                 onDismissRequest = { showTodayNotificationsDialog = false },
@@ -1201,7 +1193,6 @@ fun HomeDashboardTab(
                                         ) {
                                             Text(item.title.ifBlank { "Untitled" }, fontWeight = FontWeight.Bold)
 
-                                            // Explicitly display Due Date, Reminder, and Recurrence without overriding each other
                                             item.dueTimestamp?.let { due ->
                                                 Text(
                                                     text = "📅 Due: ${SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(due))}",
@@ -1259,11 +1250,11 @@ fun TasksTreeTab(
     onMoveToTarget: (TaskItem) -> Unit,
     onCopyToTarget: (TaskItem) -> Unit
 ) {
-    val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())[span_52](start_span)[span_52](end_span)[span_53](start_span)[span_53](end_span)
-    var searchQuery by remember { mutableStateOf("") }[span_54](start_span)[span_54](end_span)
-    val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())[span_55](start_span)[span_55](end_span)[span_56](start_span)[span_56](end_span)
-    val filterState by viewModel.filterState.collectAsState()[span_57](start_span)[span_57](end_span)[span_58](start_span)[span_58](end_span)
-    val context = LocalContext.current[span_59](start_span)[span_59](end_span)
+    val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())
+    var searchQuery by remember { mutableStateOf("") }
+    val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
+    val filterState by viewModel.filterState.collectAsState()
+    val context = LocalContext.current
 
     val displayedTasks = remember(rootTasks, searchResults, searchQuery, filterState) {
         val base = if (searchQuery.isNotBlank()) searchResults else rootTasks
@@ -1276,7 +1267,7 @@ fun TasksTreeTab(
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
         }
-    }[span_60](start_span)[span_60](end_span)
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
@@ -1293,7 +1284,7 @@ fun TasksTreeTab(
                 IconButton(onClick = {
                     viewModel.syncAllTasksToCalendar { count ->
                         Toast.makeText(context, "Synced $count task(s) to Google Calendar", Toast.LENGTH_SHORT).show()
-                    }[span_61](start_span)[span_61](end_span)[span_62](start_span)[span_62](end_span)
+                    }
                 }) {
                     Icon(Icons.Default.Sync, contentDescription = "Sync All")
                 }
@@ -1332,13 +1323,13 @@ fun CalendarAgendaTab(
     viewModel: TaskViewModel,
     onOpenTask: (TaskItem) -> Unit
 ) {
-    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())[span_63](start_span)[span_63](end_span)[span_64](start_span)[span_64](end_span)
-    val context = LocalContext.current[span_65](start_span)[span_65](end_span)
-    val dateFormat = remember { SimpleDateFormat("EEE, dd MMM yyyy", Locale.getDefault()) }[span_66](start_span)[span_66](end_span)
-    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }[span_67](start_span)[span_67](end_span)
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    val context = LocalContext.current
+    val dateFormat = remember { SimpleDateFormat("EEE, dd MMM yyyy", Locale.getDefault()) }
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
-    var searchQuery by remember { mutableStateOf("") }[span_68](start_span)[span_68](end_span)
-    val filterState by viewModel.filterState.collectAsState()[span_69](start_span)[span_69](end_span)[span_70](start_span)[span_70](end_span)
+    var searchQuery by remember { mutableStateOf("") }
+    val filterState by viewModel.filterState.collectAsState()
 
     val scheduledTasks = remember(allTasks, searchQuery, filterState) {
         allTasks.filter { task ->
@@ -1353,7 +1344,7 @@ fun CalendarAgendaTab(
         }.sortedBy { task ->
             if (task.isCompleted) task.completedTimestamp ?: task.lastModifiedTimestamp else task.createdTimestamp
         }
-    }[span_71](start_span)[span_71](end_span)
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
@@ -1369,7 +1360,7 @@ fun CalendarAgendaTab(
             IconButton(onClick = {
                 viewModel.syncAllTasksToCalendar { count ->
                     Toast.makeText(context, "Synced $count task(s) to Calendar", Toast.LENGTH_SHORT).show()
-                }[span_72](start_span)[span_72](end_span)[span_73](start_span)[span_73](end_span)
+                }
             }) {
                 Icon(Icons.Default.Sync, contentDescription = "Sync All")
             }
@@ -1377,17 +1368,17 @@ fun CalendarAgendaTab(
 
         LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(scheduledTasks, key = { it.id }) { task ->
-                var hierarchyPath by remember { mutableStateOf("") }[span_74](start_span)[span_74](end_span)
-                val scope = rememberCoroutineScope()[span_75](start_span)[span_75](end_span)
+                var hierarchyPath by remember { mutableStateOf("") }
+                val scope = rememberCoroutineScope()
                 LaunchedEffect(task.id) {
-                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }[span_76](start_span)[span_76](end_span)[span_77](start_span)[span_77](end_span)
+                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
                 }
 
                 val primaryTimestamp = if (task.isCompleted) {
                     task.completedTimestamp ?: task.lastModifiedTimestamp
                 } else {
                     task.dueTimestamp ?: task.createdTimestamp
-                }[span_78](start_span)[span_78](end_span)
+                }
 
                 Card(
                     modifier = Modifier
@@ -1433,16 +1424,16 @@ fun CalendarAgendaTab(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    PriorityBadge(task.priority)[span_79](start_span)[span_79](end_span)
+                                    PriorityBadge(task.priority)
                                     if (task.calendarEventId != null) {
                                         Text("• Google Calendar Synced ✓", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                     }
                                 }
                             }
-                            Checkbox(checked = task.isCompleted, onCheckedChange = { viewModel.toggleTaskCompletion(task) })[span_80](start_span)[span_80](end_span)[span_81](start_span)[span_81](end_span)
+                            Checkbox(checked = task.isCompleted, onCheckedChange = { viewModel.toggleTaskCompletion(task) })
                         }
 
-                        TaskMetadataStatusRow(task)[span_82](start_span)[span_82](end_span)
+                        TaskMetadataStatusRow(task)
                     }
                 }
             }
@@ -1455,22 +1446,22 @@ fun GanttChartTab(
     viewModel: TaskViewModel,
     onOpenTask: (TaskItem) -> Unit
 ) {
-    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())[span_83](start_span)[span_83](end_span)[span_84](start_span)[span_84](end_span)
-    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }[span_85](start_span)[span_85](end_span)
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
 
     val ganttTasks = remember(allTasks) {
         allTasks.sortedBy { it.createdTimestamp }
-    }[span_86](start_span)[span_86](end_span)
+    }
 
     val minTime = remember(ganttTasks) {
         ganttTasks.minOfOrNull { it.createdTimestamp } ?: System.currentTimeMillis()
-    }[span_87](start_span)[span_87](end_span)
+    }
     val maxTime = remember(ganttTasks) {
         (ganttTasks.mapNotNull { if (it.isCompleted) it.completedTimestamp ?: it.lastModifiedTimestamp else it.dueTimestamp }.maxOrNull()
             ?: (System.currentTimeMillis() + 7 * 86400000L))
             .coerceAtLeast(minTime + 86400000L)
-    }[span_88](start_span)[span_88](end_span)
-    val totalDuration = (maxTime - minTime).coerceAtLeast(1L)[span_89](start_span)[span_89](end_span)
+    }
+    val totalDuration = (maxTime - minTime).coerceAtLeast(1L)
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Text("Gantt Chart Timeline", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -1486,16 +1477,16 @@ fun GanttChartTab(
                     task.completedTimestamp ?: task.lastModifiedTimestamp
                 } else {
                     task.dueTimestamp ?: (taskStart + 86400000L)
-                }[span_90](start_span)[span_90](end_span)
+                }
 
-                val startFraction = ((taskStart - minTime).toFloat() / totalDuration).coerceIn(0f, 1f)[span_91](start_span)[span_91](end_span)
-                val spanFraction = ((taskEnd - taskStart).toFloat() / totalDuration).coerceIn(0.08f, 1f - startFraction)[span_92](start_span)[span_92](end_span)
+                val startFraction = ((taskStart - minTime).toFloat() / totalDuration).coerceIn(0f, 1f)
+                val spanFraction = ((taskEnd - taskStart).toFloat() / totalDuration).coerceIn(0.08f, 1f - startFraction)
 
-                var showDetails by remember { mutableStateOf(false) }[span_93](start_span)[span_93](end_span)
-                var hierarchyPath by remember { mutableStateOf("") }[span_94](start_span)[span_94](end_span)
-                val scope = rememberCoroutineScope()[span_95](start_span)[span_95](end_span)
+                var showDetails by remember { mutableStateOf(false) }
+                var hierarchyPath by remember { mutableStateOf("") }
+                val scope = rememberCoroutineScope()
                 LaunchedEffect(task.id) {
-                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }[span_96](start_span)[span_96](end_span)[span_97](start_span)[span_97](end_span)
+                    scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
                 }
 
                 Card(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -1518,7 +1509,7 @@ fun GanttChartTab(
                                 ),
                                 fontWeight = FontWeight.SemiBold
                             )
-                            PriorityBadge(task.priority)[span_98](start_span)[span_98](end_span)
+                            PriorityBadge(task.priority)
                         }
 
                         Spacer(Modifier.height(4.dp))
@@ -1594,10 +1585,10 @@ fun SettingsManagerTab(
     onViewModeChange: (TaskViewMode) -> Unit,
     viewModel: TaskViewModel
 ) {
-    val context = LocalContext.current[span_99](start_span)[span_99](end_span)
-    var showThemeDialog by remember { mutableStateOf(false) }[span_100](start_span)[span_100](end_span)
-    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())[span_101](start_span)[span_101](end_span)[span_102](start_span)[span_102](end_span)
-    val scope = rememberCoroutineScope()[span_103](start_span)[span_103](end_span)
+    val context = LocalContext.current
+    var showThemeDialog by remember { mutableStateOf(false) }
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
 
     val createBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
@@ -1613,7 +1604,7 @@ fun SettingsManagerTab(
                             if (success) "Backup saved to device successfully!" else "Backup failed to write",
                             Toast.LENGTH_SHORT
                         ).show()
-                    }[span_104](start_span)[span_104](end_span)[span_105](start_span)[span_105](end_span)
+                    }
                 } else {
                     Toast.makeText(context, "Cannot open selected storage location", Toast.LENGTH_SHORT).show()
                 }
@@ -1621,7 +1612,7 @@ fun SettingsManagerTab(
                 Toast.makeText(context, "Backup error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
-    }[span_106](start_span)[span_106](end_span)
+    }
 
     val restoreBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -1637,7 +1628,7 @@ fun SettingsManagerTab(
                             if (success) "Backup restored successfully from device!" else "Restore failed: Invalid or corrupt zip",
                             Toast.LENGTH_LONG
                         ).show()
-                    }[span_107](start_span)[span_107](end_span)[span_108](start_span)[span_108](end_span)
+                    }
                 } else {
                     Toast.makeText(context, "Cannot open selected backup file", Toast.LENGTH_SHORT).show()
                 }
@@ -1645,7 +1636,7 @@ fun SettingsManagerTab(
                 Toast.makeText(context, "Restore error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
-    }[span_109](start_span)[span_109](end_span)
+    }
 
     Column(
         modifier = Modifier
@@ -1694,7 +1685,7 @@ fun SettingsManagerTab(
                             } else {
                                 Toast.makeText(context, "Failed to create email backup package", Toast.LENGTH_SHORT).show()
                             }
-                        }[span_110](start_span)[span_110](end_span)[span_111](start_span)[span_111](end_span)
+                        }
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -1793,36 +1784,36 @@ fun TaskNodeView(
     onMoveToTarget: (TaskItem) -> Unit,
     onCopyToTarget: (TaskItem) -> Unit
 ) {
-    var isExpanded by remember { mutableStateOf(false) }[span_112](start_span)[span_112](end_span)
+    var isExpanded by remember { mutableStateOf(false) }
 
-    var isUndocked by remember { mutableStateOf(false) }[span_113](start_span)[span_113](end_span)
-    var offsetX by remember { mutableFloatStateOf(0f) }[span_114](start_span)[span_114](end_span)
-    var offsetY by remember { mutableFloatStateOf(0f) }[span_115](start_span)[span_115](end_span)
-    val animatedOffsetY by animateFloatAsState(targetValue = offsetY, label = "dragY")[span_116](start_span)[span_116](end_span)
+    var isUndocked by remember { mutableStateOf(false) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    val animatedOffsetY by animateFloatAsState(targetValue = offsetY, label = "dragY")
 
-    val subtasks by viewModel.getSubtasks(task.id).collectAsState(initial = emptyList())[span_117](start_span)[span_117](end_span)[span_118](start_span)[span_118](end_span)
-    val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)[span_119](start_span)[span_119](end_span)[span_120](start_span)[span_120](end_span)
-    val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())[span_121](start_span)[span_121](end_span)[span_122](start_span)[span_122](end_span)
-    val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }[span_123](start_span)[span_123](end_span)
+    val subtasks by viewModel.getSubtasks(task.id).collectAsState(initial = emptyList())
+    val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
+    val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
+    val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
 
     val layerLevel = depth + 1
 
-    var layersBelow by remember { mutableIntStateOf(0) }[span_124](start_span)[span_124](end_span)
+    var layersBelow by remember { mutableIntStateOf(0) }
     LaunchedEffect(task.id, subtasks) {
-        layersBelow = viewModel.getDescendantLayersCount(task.id)[span_125](start_span)[span_125](end_span)[span_126](start_span)[span_126](end_span)
+        layersBelow = viewModel.getDescendantLayersCount(task.id)
     }
 
-    var showDeleteConfirm by remember { mutableStateOf(false) }[span_127](start_span)[span_127](end_span)
-    val context = LocalContext.current[span_128](start_span)[span_128](end_span)
-    val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }[span_129](start_span)[span_129](end_span)
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     if (showDeleteConfirm) {
         DeleteConfirmationDialog(
             title = "Delete Task?",
             message = "Are you sure you want to delete '${task.title.ifBlank { "this task" }}'? All subtasks, checklists, attachments and its calendar event will also be removed.",
             onConfirm = {
-                viewModel.deleteTask(task)[span_130](start_span)[span_130](end_span)[span_131](start_span)[span_131](end_span)
-                showDeleteConfirm = false[span_132](start_span)[span_132](end_span)
+                viewModel.deleteTask(task)
+                showDeleteConfirm = false
             },
             onDismiss = { showDeleteConfirm = false }
         )
@@ -1848,7 +1839,7 @@ fun TaskNodeView(
         ) {
             Column(modifier = Modifier.padding(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                    PriorityBadge(task.priority)[span_133](start_span)[span_133](end_span)
+                    PriorityBadge(task.priority)
                     Spacer(Modifier.width(8.dp))
                     Surface(
                         color = MaterialTheme.colorScheme.tertiaryContainer,
@@ -1885,16 +1876,16 @@ fun TaskNodeView(
                                         offsetX += dragAmount.x
                                         offsetY += dragAmount.y
                                         if (offsetY > 48f) {
-                                            viewModel.moveTaskVertical(task, directionUp = false)[span_134](start_span)[span_134](end_span)[span_135](start_span)[span_135](end_span)
+                                            viewModel.moveTaskVertical(task, directionUp = false)
                                             offsetY = 0f
                                         } else if (offsetY < -48f) {
-                                            viewModel.moveTaskVertical(task, directionUp = true)[span_136](start_span)[span_136](end_span)[span_137](start_span)[span_137](end_span)
+                                            viewModel.moveTaskVertical(task, directionUp = true)
                                             offsetY = 0f
                                         }
                                     },
                                     onDragEnd = {
-                                        if (offsetX > 100f) viewModel.indentTask(task)[span_138](start_span)[span_138](end_span)[span_139](start_span)[span_139](end_span)
-                                        else if (offsetX < -100f) viewModel.outdentTask(task)[span_140](start_span)[span_140](end_span)[span_141](start_span)[span_141](end_span)
+                                        if (offsetX > 100f) viewModel.indentTask(task)
+                                        else if (offsetX < -100f) viewModel.outdentTask(task)
                                         offsetX = 0f
                                         offsetY = 0f
                                         isUndocked = false
@@ -1918,7 +1909,7 @@ fun TaskNodeView(
 
                     Checkbox(
                         checked = task.isCompleted,
-                        onCheckedChange = { viewModel.toggleTaskCompletion(task) },[span_142](start_span)[span_142](end_span)[span_143](start_span)[span_143](end_span)
+                        onCheckedChange = { viewModel.toggleTaskCompletion(task) },
                         modifier = Modifier.size(32.dp)
                     )
 
@@ -1936,7 +1927,7 @@ fun TaskNodeView(
                                 textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
                             ),
                             fontWeight = FontWeight.SemiBold
-                        )[span_144](start_span)[span_144](end_span)
+                        )
 
                         if (!task.tags.isNullOrBlank()) {
                             Text(
@@ -1952,7 +1943,7 @@ fun TaskNodeView(
                                 text = task.notes,
                                 query = searchQuery,
                                 style = MaterialTheme.typography.bodySmall
-                            )[span_145](start_span)[span_145](end_span)
+                            )
                         }
                     }
 
@@ -1970,7 +1961,7 @@ fun TaskNodeView(
                     }
                 }
 
-                TaskMetadataStatusRow(task)[span_146](start_span)[span_146](end_span)
+                TaskMetadataStatusRow(task)
 
                 if (!task.locationName.isNullOrBlank() || (task.latitude != null && task.longitude != null)) {
                     Surface(
@@ -2022,7 +2013,7 @@ fun TaskNodeView(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         contacts.forEach { contact ->
-                            val phone = contact.contactPhone ?: "[span_147](start_span)"[span_147](end_span)
+                            val phone = contact.contactPhone ?: ""
                             if (phone.isNotBlank()) {
                                 ContactActionRow(
                                     displayName = contact.displayName,
@@ -2035,9 +2026,9 @@ fun TaskNodeView(
                                             contact.notes,
                                             contact.contactPhone,
                                             !contact.isContactPending
-                                        )[span_148](start_span)[span_148](end_span)[span_149](start_span)[span_149](end_span)
+                                        )
                                     }
-                                )[span_150](start_span)[span_150](end_span)
+                                )
                             }
                         }
                     }
@@ -2079,7 +2070,7 @@ fun TaskNodeView(
                         }
                         IconButton(
                             modifier = Modifier.size(30.dp),
-                            onClick = { viewModel.shareTaskData(context, task.id) }[span_151](start_span)[span_151](end_span)[span_152](start_span)[span_152](end_span)
+                            onClick = { viewModel.shareTaskData(context, task.id) }
                         ) {
                             Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(17.dp))
                         }
@@ -2130,18 +2121,18 @@ fun FullScreenTaskWorkspaceDialog(
     viewModel: TaskViewModel,
     onDismiss: () -> Unit
 ) {
-    var primaryTask by remember(initialTask.id) { mutableStateOf(initialTask) }[span_153](start_span)[span_153](end_span)
-    var referencedTask by remember { mutableStateOf<TaskItem?>(null) }[span_154](start_span)[span_154](end_span)
-    var selectedWorkspaceTab by remember { mutableIntStateOf(0) }[span_155](start_span)[span_155](end_span)
+    var primaryTask by remember(initialTask.id) { mutableStateOf(initialTask) }
+    var referencedTask by remember { mutableStateOf<TaskItem?>(null) }
+    var selectedWorkspaceTab by remember { mutableIntStateOf(0) }
 
-    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())[span_156](start_span)[span_156](end_span)[span_157](start_span)[span_157](end_span)
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
 
     LaunchedEffect(allTasks, primaryTask.id) {
         val updated = allTasks.find { it.id == primaryTask.id }
         if (updated != null) {
             primaryTask = updated
         }
-    }[span_158](start_span)[span_158](end_span)
+    }
 
     LaunchedEffect(allTasks, referencedTask?.id) {
         val refId = referencedTask?.id
@@ -2151,7 +2142,7 @@ fun FullScreenTaskWorkspaceDialog(
                 referencedTask = updatedRef
             }
         }
-    }[span_159](start_span)[span_159](end_span)
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -2236,46 +2227,46 @@ fun SingleTaskEditorView(
     viewModel: TaskViewModel,
     onOpenReferencedCrossTab: (TaskItem) -> Unit
 ) {
-    val context = LocalContext.current[span_160](start_span)[span_160](end_span)
-    val audioHelper = remember { AudioRecorderHelper(context) }[span_161](start_span)[span_161](end_span)
-    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }[span_162](start_span)[span_162](end_span)
-    val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }[span_163](start_span)[span_163](end_span)
-    val scope = rememberCoroutineScope()[span_164](start_span)[span_164](end_span)
+    val context = LocalContext.current
+    val audioHelper = remember { AudioRecorderHelper(context) }
+    val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
+    val scope = rememberCoroutineScope()
 
-    var title by remember(task.id) { mutableStateOf(task.title) }[span_165](start_span)[span_165](end_span)
-    var notes by remember(task.id) { mutableStateOf(task.notes ?: "") }[span_166](start_span)[span_166](end_span)
-    var tagsText by remember(task.id) { mutableStateOf(task.tags ?: "") }[span_167](start_span)[span_167](end_span)
-    var priority by remember(task.id) { mutableStateOf(task.priority) }[span_168](start_span)[span_168](end_span)
+    var title by remember(task.id) { mutableStateOf(task.title) }
+    var notes by remember(task.id) { mutableStateOf(task.notes ?: "") }
+    var tagsText by remember(task.id) { mutableStateOf(task.tags ?: "") }
+    var priority by remember(task.id) { mutableStateOf(task.priority) }
 
-    var createdMs by remember(task.id) { mutableLongStateOf(task.createdTimestamp) }[span_169](start_span)[span_169](end_span)
-    var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }[span_170](start_span)[span_170](end_span)
-    var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }[span_171](start_span)[span_171](end_span)
+    var createdMs by remember(task.id) { mutableLongStateOf(task.createdTimestamp) }
+    var reminderMs by remember(task.id) { mutableStateOf(task.reminderTimestamp) }
+    var dueMs by remember(task.id) { mutableStateOf(task.dueTimestamp) }
 
-    var locationName by remember(task.id) { mutableStateOf(task.locationName ?: "") }[span_172](start_span)[span_172](end_span)
-    var latitude by remember(task.id) { mutableStateOf(task.latitude) }[span_173](start_span)[span_173](end_span)
-    var longitude by remember(task.id) { mutableStateOf(task.longitude) }[span_174](start_span)[span_174](end_span)
-    var isResolvingLocation by remember { mutableStateOf(false) }[span_175](start_span)[span_175](end_span)
+    var locationName by remember(task.id) { mutableStateOf(task.locationName ?: "") }
+    var latitude by remember(task.id) { mutableStateOf(task.latitude) }
+    var longitude by remember(task.id) { mutableStateOf(task.longitude) }
+    var isResolvingLocation by remember { mutableStateOf(false) }
 
-    var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }[span_176](start_span)[span_176](end_span)
-    var repeatDaysText by remember(task.id) { mutableStateOf(task.repeatIntervalDays.toString()) }[span_177](start_span)[span_177](end_span)
-    var repeatHoursText by remember(task.id) { mutableStateOf(task.repeatIntervalHours.toString()) }[span_178](start_span)[span_178](end_span)
-    var repeatMinutesText by remember(task.id) { mutableStateOf(task.repeatIntervalMinutes.toString()) }[span_179](start_span)[span_179](end_span)
-    var repeatStartDate by remember(task.id) { mutableStateOf(task.repeatStartDate ?: System.currentTimeMillis()) }[span_180](start_span)[span_180](end_span)
-    var repeatStartTimeMs by remember(task.id) { mutableStateOf(task.repeatStartTimeMs ?: System.currentTimeMillis()) }[span_181](start_span)[span_181](end_span)
-    var repeatEndTimeMs by remember(task.id) { mutableStateOf(task.repeatEndTimeMs ?: (System.currentTimeMillis() + 43200000L)) }[span_182](start_span)[span_182](end_span)
+    var repeatRule by remember(task.id) { mutableStateOf(task.repeatRule) }
+    var repeatDaysText by remember(task.id) { mutableStateOf(task.repeatIntervalDays.toString()) }
+    var repeatHoursText by remember(task.id) { mutableStateOf(task.repeatIntervalHours.toString()) }
+    var repeatMinutesText by remember(task.id) { mutableStateOf(task.repeatIntervalMinutes.toString()) }
+    var repeatStartDate by remember(task.id) { mutableStateOf(task.repeatStartDate ?: System.currentTimeMillis()) }
+    var repeatStartTimeMs by remember(task.id) { mutableStateOf(task.repeatStartTimeMs ?: System.currentTimeMillis()) }
+    var repeatEndTimeMs by remember(task.id) { mutableStateOf(task.repeatEndTimeMs ?: (System.currentTimeMillis() + 43200000L)) }
 
-    var isRecordingAudio by remember { mutableStateOf(false) }[span_183](start_span)[span_183](end_span)
-    var recordedAudioPath by remember { mutableStateOf<String?>(null) }[span_184](start_span)[span_184](end_span)
-    var newChecklistText by remember { mutableStateOf("") }[span_185](start_span)[span_185](end_span)
-    var manualPhone by remember { mutableStateOf("") }[span_186](start_span)[span_186](end_span)
-    var manualContactName by remember { mutableStateOf("") }[span_187](start_span)[span_187](end_span)
+    var isRecordingAudio by remember { mutableStateOf(false) }
+    var recordedAudioPath by remember { mutableStateOf<String?>(null) }
+    var newChecklistText by remember { mutableStateOf("") }
+    var manualPhone by remember { mutableStateOf("") }
+    var manualContactName by remember { mutableStateOf("") }
 
-    var itemPendingDeleteChecklist by remember { mutableStateOf<ChecklistItem?>(null) }[span_188](start_span)[span_188](end_span)
-    var itemPendingDeleteAttachment by remember { mutableStateOf<RichAttachment?>(null) }[span_189](start_span)[span_189](end_span)
+    var itemPendingDeleteChecklist by remember { mutableStateOf<ChecklistItem?>(null) }
+    var itemPendingDeleteAttachment by remember { mutableStateOf<RichAttachment?>(null) }
 
-    val liveChecklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())[span_190](start_span)[span_190](end_span)[span_191](start_span)[span_191](end_span)
-    val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())[span_192](start_span)[span_192](end_span)[span_193](start_span)[span_193](end_span)
-    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())[span_194](start_span)[span_194](end_span)[span_195](start_span)[span_195](end_span)
+    val liveChecklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
+    val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -2320,8 +2311,8 @@ fun SingleTaskEditorView(
                             locationName = place,
                             latitude = loc.latitude,
                             longitude = loc.longitude
-                        )[span_196](start_span)[span_196](end_span)[span_197](start_span)[span_197](end_span)
-                        Toast.makeText(context, "Location saved: $place", Toast.LENGTH_SHORT).show()[span_198](start_span)[span_198](end_span)
+                        )
+                        Toast.makeText(context, "Location saved: $place", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onError = { err ->
@@ -2332,15 +2323,15 @@ fun SingleTaskEditorView(
         } else {
             Toast.makeText(context, "Location permission denied", Toast.LENGTH_SHORT).show()
         }
-    }[span_199](start_span)[span_199](end_span)
+    }
 
     if (itemPendingDeleteChecklist != null) {
         DeleteConfirmationDialog(
             title = "Delete Checklist Item?",
             message = "Are you sure you want to delete '${itemPendingDeleteChecklist?.text}'?",
             onConfirm = {
-                itemPendingDeleteChecklist?.let { viewModel.deleteChecklistItem(it) }[span_200](start_span)[span_200](end_span)[span_201](start_span)[span_201](end_span)
-                itemPendingDeleteChecklist = null[span_202](start_span)[span_202](end_span)
+                itemPendingDeleteChecklist?.let { viewModel.deleteChecklistItem(it) }
+                itemPendingDeleteChecklist = null
             },
             onDismiss = { itemPendingDeleteChecklist = null }
         )
@@ -2351,8 +2342,8 @@ fun SingleTaskEditorView(
             title = "Delete Attachment?",
             message = "Are you sure you want to remove '${itemPendingDeleteAttachment?.displayName}'?",
             onConfirm = {
-                itemPendingDeleteAttachment?.let { viewModel.deleteAttachment(it) }[span_203](start_span)[span_203](end_span)[span_204](start_span)[span_204](end_span)
-                itemPendingDeleteAttachment = null[span_205](start_span)[span_205](end_span)
+                itemPendingDeleteAttachment?.let { viewModel.deleteAttachment(it) }
+                itemPendingDeleteAttachment = null
             },
             onDismiss = { itemPendingDeleteAttachment = null }
         )
@@ -2367,11 +2358,11 @@ fun SingleTaskEditorView(
                 val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 if (c.moveToFirst() && idx != -1) fileName = c.getString(idx)
             }
-            viewModel.addAttachment(task.id, AttachmentType.FILE, uri.toString(), fileName)[span_206](start_span)[span_206](end_span)[span_207](start_span)[span_207](end_span)
+            viewModel.addAttachment(task.id, AttachmentType.FILE, uri.toString(), fileName)
         }
-    }[span_208](start_span)[span_208](end_span)
+    }
 
-    var tempVideoUri by remember { mutableStateOf<Uri?>(null) }[span_209](start_span)[span_209](end_span)
+    var tempVideoUri by remember { mutableStateOf<Uri?>(null) }
     val videoRecordLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CaptureVideo()
     ) { success: Boolean ->
@@ -2381,9 +2372,9 @@ fun SingleTaskEditorView(
                 AttachmentType.VIDEO,
                 tempVideoUri.toString(),
                 "Video Recording ${fullDateTimeFormat.format(Date())}"
-            )[span_210](start_span)[span_210](end_span)[span_211](start_span)[span_211](end_span)
+            )
         }
-    }[span_212](start_span)[span_212](end_span)
+    }
 
     val contactPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickContact()
@@ -2420,11 +2411,11 @@ fun SingleTaskEditorView(
                         uriString = uri.toString(),
                         displayName = name ?: "Contact",
                         contactPhone = phone
-                    )[span_213](start_span)[span_213](end_span)[span_214](start_span)[span_214](end_span)
+                    )
                 }
             }
         }
-    }[span_215](start_span)[span_215](end_span)
+    }
 
     Column(
         modifier = Modifier
@@ -2440,7 +2431,7 @@ fun SingleTaskEditorView(
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(
-                    onClick = { viewModel.shareTaskData(context, task.id) },[span_216](start_span)[span_216](end_span)[span_217](start_span)[span_217](end_span)
+                    onClick = { viewModel.shareTaskData(context, task.id) },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -2449,7 +2440,7 @@ fun SingleTaskEditorView(
                 }
 
                 OutlinedButton(
-                    onClick = { viewModel.shareTaskData(context, task.id, targetPackage = "com.whatsapp") }[span_218](start_span)[span_218](end_span)[span_219](start_span)[span_219](end_span)
+                    onClick = { viewModel.shareTaskData(context, task.id, targetPackage = "com.whatsapp") }
                 ) {
                     Text("WhatsApp")
                 }
@@ -2481,8 +2472,8 @@ fun SingleTaskEditorView(
                         locationName = locationName.ifBlank { null },
                         latitude = latitude,
                         longitude = longitude
-                    )[span_220](start_span)[span_220](end_span)[span_221](start_span)[span_221](end_span)
-                    Toast.makeText(context, "Saved changes ✓", Toast.LENGTH_SHORT).show()[span_222](start_span)[span_222](end_span)
+                    )
+                    Toast.makeText(context, "Saved changes ✓", Toast.LENGTH_SHORT).show()
                 }
             ) {
                 Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -2491,7 +2482,6 @@ fun SingleTaskEditorView(
             }
         }
 
-        // Live active status chips displayed right at the top of the full-screen editor
         TaskMetadataStatusRow(
             isCompleted = task.isCompleted,
             completedTimestamp = task.completedTimestamp,
@@ -2634,7 +2624,6 @@ fun SingleTaskEditorView(
             modifier = Modifier.fillMaxWidth()
         )
 
-        // SCHEDULED / CREATED TIME INTERACTIVE PICKER CARD
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
@@ -2927,8 +2916,8 @@ fun SingleTaskEditorView(
                                     locationName = locationName.ifBlank { null },
                                     latitude = latitude,
                                     longitude = longitude
-                                )[span_223](start_span)[span_223](end_span)[span_224](start_span)[span_224](end_span)
-                                Toast.makeText(context, "Repeat pattern applied ✓", Toast.LENGTH_SHORT).show()[span_225](start_span)[span_225](end_span)
+                                )
+                                Toast.makeText(context, "Repeat pattern applied ✓", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -2945,8 +2934,8 @@ fun SingleTaskEditorView(
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Cross-Task Linking (Bidirectional)", fontWeight = FontWeight.Bold)
 
-                var showLinkDropdown by remember { mutableStateOf(false) }[span_226](start_span)[span_226](end_span)
-                val otherTasks = remember(allTasks, task.id) { allTasks.filter { it.id != task.id } }[span_227](start_span)[span_227](end_span)
+                var showLinkDropdown by remember { mutableStateOf(false) }
+                val otherTasks = remember(allTasks, task.id) { allTasks.filter { it.id != task.id } }
 
                 Box {
                     OutlinedButton(onClick = { showLinkDropdown = true }, modifier = Modifier.fillMaxWidth()) {
@@ -2963,8 +2952,8 @@ fun SingleTaskEditorView(
                             DropdownMenuItem(
                                 text = { Text(other.title.ifBlank { "Task #${other.id}" }) },
                                 onClick = {
-                                    viewModel.linkTasksBidirectional(task.id, other.id)[span_228](start_span)[span_228](end_span)[span_229](start_span)[span_229](end_span)
-                                    showLinkDropdown = false[span_230](start_span)[span_230](end_span)
+                                    viewModel.linkTasksBidirectional(task.id, other.id)
+                                    showLinkDropdown = false
                                 }
                             )
                         }
@@ -2973,7 +2962,7 @@ fun SingleTaskEditorView(
 
                 val liveLinkedIds = remember(task.linkedTaskIds) {
                     task.linkedTaskIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() } ?: emptyList()
-                }[span_231](start_span)[span_231](end_span)
+                }
 
                 if (liveLinkedIds.isNotEmpty()) {
                     Text("Linked Tasks:", style = MaterialTheme.typography.labelMedium)
@@ -2982,15 +2971,15 @@ fun SingleTaskEditorView(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         liveLinkedIds.forEach { id ->
-                            val linkedTask = allTasks.find { it.id == id }[span_232](start_span)[span_232](end_span)
+                            val linkedTask = allTasks.find { it.id == id }
                             AssistChip(
                                 onClick = {
                                     scope.launch {
-                                        val target = viewModel.getTaskById(id)[span_233](start_span)[span_233](end_span)[span_234](start_span)[span_234](end_span)
+                                        val target = viewModel.getTaskById(id)
                                         if (target != null) {
-                                            onOpenReferencedCrossTab(target)[span_235](start_span)[span_235](end_span)
+                                            onOpenReferencedCrossTab(target)
                                         } else {
-                                            Toast.makeText(context, "Linked task not found", Toast.LENGTH_SHORT).show()[span_236](start_span)[span_236](end_span)
+                                            Toast.makeText(context, "Linked task not found", Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
@@ -3005,7 +2994,7 @@ fun SingleTaskEditorView(
                                 },
                                 trailingIcon = {
                                     IconButton(modifier = Modifier.size(16.dp), onClick = {
-                                        viewModel.unlinkTasksBidirectional(task.id, id)[span_237](start_span)[span_237](end_span)[span_238](start_span)[span_238](end_span)
+                                        viewModel.unlinkTasksBidirectional(task.id, id)
                                     }) {
                                         Icon(Icons.Default.Clear, contentDescription = "Unlink")
                                     }
@@ -3022,10 +3011,10 @@ fun SingleTaskEditorView(
                 Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
 
                 liveChecklist.forEach { item ->
-                    var isRenamingTitle by remember { mutableStateOf(false) }[span_239](start_span)[span_239](end_span)
-                    var renameTitleText by remember(item.text) { mutableStateOf(item.text) }[span_240](start_span)[span_240](end_span)
-                    var isNoteExpanded by remember { mutableStateOf(false) }[span_241](start_span)[span_241](end_span)
-                    var itemNoteText by remember(item.notes) { mutableStateOf(item.notes ?: "") }[span_242](start_span)[span_242](end_span)
+                    var isRenamingTitle by remember { mutableStateOf(false) }
+                    var renameTitleText by remember(item.text) { mutableStateOf(item.text) }
+                    var isNoteExpanded by remember { mutableStateOf(false) }
+                    var itemNoteText by remember(item.notes) { mutableStateOf(item.notes ?: "") }
 
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -3043,7 +3032,7 @@ fun SingleTaskEditorView(
                             ) {
                                 Checkbox(
                                     checked = item.isDone,
-                                    onCheckedChange = { viewModel.toggleChecklistItem(item) },[span_243](start_span)[span_243](end_span)[span_244](start_span)[span_244](end_span)
+                                    onCheckedChange = { viewModel.toggleChecklistItem(item) },
                                     modifier = Modifier.size(32.dp)
                                 )
                                 Spacer(Modifier.width(8.dp))
@@ -3110,8 +3099,8 @@ fun SingleTaskEditorView(
                                         TextButton(onClick = { isRenamingTitle = false }) { Text("Cancel") }
                                         Spacer(Modifier.width(8.dp))
                                         Button(onClick = {
-                                            viewModel.updateChecklistItem(item, renameTitleText, item.notes, item.isDone)[span_245](start_span)[span_245](end_span)[span_246](start_span)[span_246](end_span)
-                                            isRenamingTitle = false[span_247](start_span)[span_247](end_span)
+                                            viewModel.updateChecklistItem(item, renameTitleText, item.notes, item.isDone)
+                                            isRenamingTitle = false
                                         }) { Text("Save Name") }
                                     }
                                 }
@@ -3122,7 +3111,7 @@ fun SingleTaskEditorView(
                                     value = itemNoteText,
                                     onValueChange = {
                                         itemNoteText = it
-                                        viewModel.updateChecklistItem(item, item.text, it, item.isDone)[span_248](start_span)[span_248](end_span)[span_249](start_span)[span_249](end_span)
+                                        viewModel.updateChecklistItem(item, item.text, it, item.isDone)
                                     },
                                     label = { Text("Checklist Note / Description") },
                                     minLines = 2,
@@ -3145,8 +3134,8 @@ fun SingleTaskEditorView(
                     Spacer(Modifier.width(8.dp))
                     Button(onClick = {
                         if (newChecklistText.isNotBlank()) {
-                            viewModel.addChecklistItem(task.id, newChecklistText)[span_250](start_span)[span_250](end_span)[span_251](start_span)[span_251](end_span)
-                            newChecklistText = "[span_252](start_span)"[span_252](end_span)
+                            viewModel.addChecklistItem(task.id, newChecklistText)
+                            newChecklistText = ""
                         }
                     }) {
                         Text("Add")
@@ -3166,10 +3155,10 @@ fun SingleTaskEditorView(
                         Text("Add Files")
                     }
                     OutlinedButton(onClick = {
-                        val videoFile = File(context.cacheDir, "video_${System.currentTimeMillis()}.mp4")[span_253](start_span)[span_253](end_span)
-                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", videoFile)[span_254](start_span)[span_254](end_span)
-                        tempVideoUri = uri[span_255](start_span)[span_255](end_span)
-                        videoRecordLauncher.launch(uri)[span_256](start_span)[span_256](end_span)
+                        val videoFile = File(context.cacheDir, "video_${System.currentTimeMillis()}.mp4")
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", videoFile)
+                        tempVideoUri = uri
+                        videoRecordLauncher.launch(uri)
                     }) {
                         Icon(Icons.Default.Videocam, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
@@ -3177,14 +3166,14 @@ fun SingleTaskEditorView(
                     }
                     OutlinedButton(onClick = {
                         if (isRecordingAudio) {
-                            recordedAudioPath = audioHelper.stopRecording()[span_257](start_span)[span_257](end_span)
-                            isRecordingAudio = false[span_258](start_span)[span_258](end_span)
+                            recordedAudioPath = audioHelper.stopRecording()
+                            isRecordingAudio = false
                             recordedAudioPath?.let {
-                                viewModel.addAttachment(task.id, AttachmentType.AUDIO, it, "Voice Memo ${fullDateTimeFormat.format(Date())}")[span_259](start_span)[span_259](end_span)[span_260](start_span)[span_260](end_span)
+                                viewModel.addAttachment(task.id, AttachmentType.AUDIO, it, "Voice Memo ${fullDateTimeFormat.format(Date())}")
                             }
                         } else {
-                            audioHelper.startRecording()[span_261](start_span)[span_261](end_span)
-                            isRecordingAudio = true[span_262](start_span)[span_262](end_span)
+                            audioHelper.startRecording()
+                            isRecordingAudio = true
                         }
                     }) {
                         Icon(if (isRecordingAudio) Icons.Default.Stop else Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -3221,9 +3210,9 @@ fun SingleTaskEditorView(
                                 uriString = "tel:$manualPhone",
                                 displayName = if (manualContactName.isBlank()) "Contact" else manualContactName,
                                 contactPhone = manualPhone
-                            )[span_263](start_span)[span_263](end_span)[span_264](start_span)[span_264](end_span)
-                            manualContactName = "[span_265](start_span)"[span_265](end_span)
-                            manualPhone = "[span_266](start_span)"[span_266](end_span)
+                            )
+                            manualContactName = ""
+                            manualPhone = ""
                         }
                     }) {
                         Text("Add")
@@ -3233,8 +3222,8 @@ fun SingleTaskEditorView(
                 HorizontalDivider()
 
                 liveAttachments.forEach { att ->
-                    var isAttachmentNoteExpanded by remember { mutableStateOf(false) }[span_267](start_span)[span_267](end_span)
-                    var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }[span_268](start_span)[span_268](end_span)
+                    var isAttachmentNoteExpanded by remember { mutableStateOf(false) }
+                    var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
 
                     Card(
                         modifier = Modifier
@@ -3260,9 +3249,9 @@ fun SingleTaskEditorView(
                                             att.notes,
                                             att.contactPhone,
                                             !att.isContactPending
-                                        )[span_269](start_span)[span_269](end_span)[span_270](start_span)[span_270](end_span)
+                                        )
                                     }
-                                )[span_271](start_span)[span_271](end_span)
+                                )
                             } else {
                                 Row(
                                     modifier = Modifier
@@ -3341,7 +3330,7 @@ fun SingleTaskEditorView(
                                     value = attNoteText,
                                     onValueChange = {
                                         attNoteText = it
-                                        viewModel.updateAttachment(att, att.displayName, it, att.contactPhone, att.isContactPending)[span_272](start_span)[span_272](end_span)[span_273](start_span)[span_273](end_span)
+                                        viewModel.updateAttachment(att, att.displayName, it, att.contactPhone, att.isContactPending)
                                     },
                                     label = { Text("Attachment Note / Details") },
                                     minLines = 2,
@@ -3370,14 +3359,14 @@ fun TaskDestinationDialog(
     onDismiss: () -> Unit,
     onSelectTarget: (Long?) -> Unit
 ) {
-    var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }[span_274](start_span)[span_274](end_span)
-    val scope = rememberCoroutineScope()[span_275](start_span)[span_275](end_span)
+    var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(currentTaskId) {
         scope.launch {
-            potentialParents = viewModel.getAllPotentialParents(currentTaskId)[span_276](start_span)[span_276](end_span)[span_277](start_span)[span_277](end_span)
+            potentialParents = viewModel.getAllPotentialParents(currentTaskId)
         }
-    }[span_278](start_span)[span_278](end_span)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
