@@ -402,13 +402,14 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
             dao.updateTask(updated)
             syncTaskToCalendar(updated)
 
-            workManager.cancelAllWorkByTag("TASK_${task.id}")
-            if (reminderEpochMs != null && reminderEpochMs > System.currentTimeMillis()) {
-                scheduleReminder(task.id, title, reminderEpochMs)
+            // Cancel existing alarms and re-arm via TaskSchedulerHelper
+            TaskSchedulerHelper.cancelAllAlarmsForTask(getApplication(), task.id)
+            if (!updated.isCompleted) {
+                TaskSchedulerHelper.scheduleTaskAlarms(getApplication(), updated)
             }
+
         }
     }
-
     fun toggleTaskCompletion(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
@@ -420,16 +421,23 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
             )
             dao.updateTask(updated)
             syncTaskToCalendar(updated)
+
+            // Cancel alarms if done, or reschedule if reopened
+            if (newCompleted) {
+                TaskSchedulerHelper.cancelAllAlarmsForTask(getApplication(), task.id)
+            } else {
+                TaskSchedulerHelper.scheduleTaskAlarms(getApplication(), updated)
+            }
         }
     }
 
-    fun deleteTask(task: TaskItem) {
+        fun deleteTask(task: TaskItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val allDescendants = getAllDescendants(task.id)
             val allTasksToDelete = listOf(task) + allDescendants
 
             for (t in allTasksToDelete) {
-                workManager.cancelAllWorkByTag("TASK_${t.id}")
+                TaskSchedulerHelper.cancelAllAlarmsForTask(getApplication(), t.id)
                 t.calendarEventId?.let { calEventId ->
                     CalendarHelper.deleteEvent(getApplication(), calEventId)
                 }
@@ -438,8 +446,12 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         }
     }
 
+
+    
+
     // MULTI-TASK BATCH DELETION
-    fun deleteTasksBatch(taskIds: Set<Long>) {
+
+        fun deleteTasksBatch(taskIds: Set<Long>) {
         viewModelScope.launch(Dispatchers.IO) {
             if (taskIds.isEmpty()) return@launch
             val allSnapshot = dao.getAllTasksSnapshot()
@@ -449,7 +461,7 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
                 val descendants = getAllDescendants(task.id)
                 val allToDelete = listOf(task) + descendants
                 for (t in allToDelete) {
-                    workManager.cancelAllWorkByTag("TASK_${t.id}")
+                    TaskSchedulerHelper.cancelAllAlarmsForTask(getApplication(), t.id)
                     t.calendarEventId?.let { calId ->
                         CalendarHelper.deleteEvent(getApplication(), calId)
                     }
@@ -458,6 +470,8 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
             }
         }
     }
+
+    
 
     private suspend fun getAllDescendants(parentId: Long): List<TaskItem> {
         val result = mutableListOf<TaskItem>()
