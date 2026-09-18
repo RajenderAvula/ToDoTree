@@ -67,7 +67,9 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
     fun searchTasks(query: String): Flow<List<TaskItem>> = dao.searchTasks(query)
 
     suspend fun getTaskById(taskId: Long): TaskItem? = dao.getTaskById(taskId)
-
+suspend fun getImmediateSubtasksSnapshot(parentId: Long): List<TaskItem> = withContext(Dispatchers.IO) {
+    dao.getSubtasksSnapshot(parentId)
+}
     suspend fun getAllUniqueTags(): List<String> {
         val all = dao.getAllTasksSnapshot()
         val set = mutableSetOf<String>()
