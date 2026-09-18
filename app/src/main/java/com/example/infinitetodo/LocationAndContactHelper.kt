@@ -11,7 +11,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -112,9 +114,6 @@ object LocationAndContactHelper {
         }
     }
 
-    /**
-     * Suspend function called by MainActivity
-     */
     suspend fun resolvePlaceName(context: Context, latitude: Double, longitude: Double): String = withContext(Dispatchers.IO) {
         val geocoder = Geocoder(context, Locale.getDefault())
         val defaultCoord = "Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})"
@@ -142,11 +141,8 @@ object LocationAndContactHelper {
         }
     }
 
-    /**
-     * Callback alias in case any legacy code calls fetchPlaceName
-     */
     fun fetchPlaceName(context: Context, latitude: Double, longitude: Double, onResolved: (String) -> Unit) {
-        kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+        CoroutineScope(Dispatchers.Main).launch {
             val name = resolvePlaceName(context, latitude, longitude)
             onResolved(name)
         }
