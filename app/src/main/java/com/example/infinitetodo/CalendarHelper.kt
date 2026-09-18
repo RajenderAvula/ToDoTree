@@ -18,7 +18,7 @@ object CalendarHelper {
         val accountType: String
     )
 
-    fun getPrimaryGoogleCalendar(context: Context): CalendarTarget? {
+    /*fun getPrimaryGoogleCalendar(context: Context): CalendarTarget? {
         val projection = arrayOf(
             CalendarContract.Calendars._ID,
             CalendarContract.Calendars.ACCOUNT_NAME,
@@ -63,7 +63,77 @@ object CalendarHelper {
         } catch (_: Exception) {
             false
         }
+    }*/
+    fun eventExists(context: Context, eventId: Long): Boolean {
+    return try {
+        val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId)
+        val projection = arrayOf(CalendarContract.Events._ID, CalendarContract.Events.DELETED)
+        val cursor = context.contentResolver.query(uri, projection, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val deletedCol = it.getColumnIndex(CalendarContract.Events.DELETED)
+                val isDeleted = if (deletedCol != -1) it.getInt(deletedCol) == 1 else false
+                !isDeleted
+            } else {
+                false
+            }
+        } ?: false
+    } catch (_: Exception) {
+        false
     }
+}
+
+fun getPrimaryGoogleCalendar(context: Context): CalendarTarget? {
+    val projection = arrayOf(
+        CalendarContract.Calendars._ID,
+        CalendarContract.Calendars.ACCOUNT_NAME,
+        CalendarContract.Calendars.ACCOUNT_TYPE,
+        CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL,
+        CalendarContract.Calendars.VISIBLE,
+        CalendarContract.Calendars.IS_PRIMARY
+    )
+    val uri = CalendarContract.Calendars.CONTENT_URI
+    var primaryGoogleTarget: CalendarTarget? = null
+    var anyGoogleTarget: CalendarTarget? = null
+    var fallbackTarget: CalendarTarget? = null
+
+    try {
+        val cursor = context.contentResolver.query(uri, projection, null, null, null)
+        cursor?.use {
+            val idCol = it.getColumnIndex(CalendarContract.Calendars._ID)
+            val accNameCol = it.getColumnIndex(CalendarContract.Calendars.ACCOUNT_NAME)
+            val accTypeCol = it.getColumnIndex(CalendarContract.Calendars.ACCOUNT_TYPE)
+            val accessCol = it.getColumnIndex(CalendarContract.Calendars.CALENDAR_ACCESS_LEVEL)
+            val visCol = it.getColumnIndex(CalendarContract.Calendars.VISIBLE)
+            val isPrimaryCol = it.getColumnIndex(CalendarContract.Calendars.IS_PRIMARY)
+
+            while (it.moveToNext()) {
+                val id = it.getLong(idCol)
+                val accountName = it.getString(accNameCol) ?: ""
+                val accountType = it.getString(accTypeCol) ?: ""
+                val accessLevel = if (accessCol != -1) it.getInt(accessCol) else 0
+                val visible = if (visCol != -1) it.getInt(visCol) else 0
+                val isPrimary = if (isPrimaryCol != -1) it.getInt(isPrimaryCol) == 1 else false
+
+                if (accessLevel >= CalendarContract.Calendars.CAL_ACCESS_CONTRIBUTOR) {
+                    if (accountType.equals("com.google", ignoreCase = true)) {
+                        if (isPrimary) {
+                            return CalendarTarget(id, accountName, accountType)
+                        }
+                        if (anyGoogleTarget == null && visible == 1) {
+                            anyGoogleTarget = CalendarTarget(id, accountName, accountType)
+                        }
+                    } else if (fallbackTarget == null && visible == 1) {
+                        fallbackTarget = CalendarTarget(id, accountName, accountType)
+                    }
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("CalendarHelper", "Error resolving calendar target", e)
+    }
+    return primaryGoogleTarget ?: anyGoogleTarget ?: fallbackTarget
+}
 
     fun insertEvent(
         context: Context,
