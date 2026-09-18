@@ -89,8 +89,10 @@ class MainActivity : ComponentActivity() {
         // 1. Create High-Priority Notification Channel for Android 8+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = android.app.NotificationChannel(
-                NotificationActionReceiver.CHANNEL_ID,
-                NotificationActionReceiver.CHANNEL_NAME,
+                //NotificationActionReceiver.CHANNEL_ID,
+                //NotificationActionReceiver.CHANNEL_NAME,
+                "todo_tree_alerts_channel",
+                "Task Reminders & Alarms",
                 android.app.NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Task reminders, due date alarms, and recurrence alerts"
