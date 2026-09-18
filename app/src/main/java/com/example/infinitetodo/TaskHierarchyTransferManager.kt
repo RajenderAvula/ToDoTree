@@ -92,8 +92,8 @@ object TaskHierarchyTransferEngine {
     }
 
     /**
-     * Resolves the closest ancestor of [taskId] that was selected by the user.
-     * If all intermediate levels were bypassed, it defaults directly to [rootTaskId].
+     * Resolves closest selected ancestor. If all intermediate nodes were bypassed,
+     * it binds directly to rootTaskId.
      */
     private suspend fun resolveClosestSelectedAncestor(
         dao: TaskDao,
@@ -307,7 +307,7 @@ object TaskHierarchyTransferEngine {
 }
 
 // -----------------------------------------------------------------------------------------
-// UI DIALOG 1: ADVANCED TRANSFER DIALOG
+// UI DIALOGS
 // -----------------------------------------------------------------------------------------
 
 @Composable
@@ -404,7 +404,7 @@ fun AdvancedTaskTransferDialog(
                             LazyColumn(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 items(allDescendantNodes, key = { it.task.id }) { node ->
                                     val isChecked = node.task.id in selectedSubtaskIds
-                                    val indentPrefix = "—".repeat(node.depthLevel)
+                                    val indentPrefix = "-".repeat(node.depthLevel)
                                     val levelTag = when (node.depthLevel) {
                                         1 -> "[Sub]"
                                         2 -> "[Sub-Sub]"
@@ -437,7 +437,7 @@ fun AdvancedTaskTransferDialog(
                             }
                         }
                         Text(
-                            text = "ℹ Intermediate unselected tasks will be skipped. Deeper selected tasks will attach directly to this task.",
+                            text = "Note: Intermediate unselected tasks will be skipped. Deeper selected tasks will attach directly to this task.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -586,7 +586,7 @@ fun AdvancedTaskTransferDialog(
                                 copyAllSubtasks = moveOrCopyAll,
                                 selectedSubtaskIds = selectedSubtaskIds
                             )
-                            Toast.makeText(context, "Copied as ${targetLevel.title} successfully ✓", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Copied as ${targetLevel.title} successfully", Toast.LENGTH_SHORT).show()
                         } else {
                             TaskHierarchyTransferEngine.executeSelectiveTreeMove(
                                 dao = dao,
@@ -595,7 +595,7 @@ fun AdvancedTaskTransferDialog(
                                 moveAllSubtasks = moveOrCopyAll,
                                 selectedSubtaskIds = selectedSubtaskIds
                             )
-                            Toast.makeText(context, "Moved as ${targetLevel.title} successfully ✓", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Moved as ${targetLevel.title} successfully", Toast.LENGTH_SHORT).show()
                         }
                         onDismiss()
                     }
@@ -610,11 +610,6 @@ fun AdvancedTaskTransferDialog(
     )
 }
 
-// -----------------------------------------------------------------------------------------
-// UI DIALOG 2: CUSTOM MULTI-TASK HIERARCHY TRANSFER
-// -----------------------------------------------------------------------------------------
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomHierarchyTransferDialog(
     tasksToTransfer: List<TaskItem>,
@@ -750,7 +745,7 @@ fun CustomHierarchyTransferDialog(
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
-                                            text = "✓ Root Level Main Task (No Parent)",
+                                            text = "Root Level Main Task (No Parent)",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.SemiBold,
                                             modifier = Modifier.padding(8.dp)
@@ -819,7 +814,7 @@ fun CustomHierarchyTransferDialog(
                             isCopy = isCopy,
                             numberOfCopies = numberOfCopies
                         )
-                        Toast.makeText(context, if (isCopy) "Tasks copied successfully ✓" else "Tasks moved successfully ✓", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (isCopy) "Tasks copied successfully" else "Tasks moved successfully", Toast.LENGTH_SHORT).show()
                         onDismiss()
                     }
                 }
@@ -882,10 +877,6 @@ fun ParentDropdownPicker(
         }
     }
 }
-
-// -----------------------------------------------------------------------------------------
-// UI DIALOG 3: ROLE REVERSAL / HIERARCHICAL SWAP DIALOG
-// -----------------------------------------------------------------------------------------
 
 @Composable
 fun SwapTaskRoleDialog(
