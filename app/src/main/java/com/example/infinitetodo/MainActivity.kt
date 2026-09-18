@@ -61,7 +61,15 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.ceil
 import kotlin.math.roundToInt
+
+val fullDateTimeFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+val shortDateFormat: SimpleDateFormat = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())
+val dateOnlyFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+val timeOnlyFormat: SimpleDateFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+
+const val TASKS_PER_PAGE = 10
 
 enum class AppNavTab(val title: String, val icon: ImageVector) {
     HOME("Home", Icons.Default.Home),
@@ -69,6 +77,14 @@ enum class AppNavTab(val title: String, val icon: ImageVector) {
     CALENDAR("Calendar", Icons.Default.CalendarMonth),
     GANTT("Gantt", Icons.Default.Timeline),
     SETTINGS("Settings", Icons.Default.Settings)
+}
+
+enum class TargetHierarchyLevel(val title: String, val subtitle: String) {
+    MAIN("Main Task", "Root level (Layer 1)"),
+    SUB("Subtask", "Direct child of a Main Task (Layer 2)"),
+    SUBSUB("Sub-Subtask", "Child of a Subtask (Layer 3)"),
+    DEEPER("Sub-Sub-Subtask+", "Child of a Sub-Subtask (Layer 4+)"),
+    ANY("All Levels", "Select any task in tree")
 }
 
 class MainActivity : ComponentActivity() {
@@ -120,11 +136,10 @@ fun MainAppScaffold(
     var activeFullScreenTask by remember { mutableStateOf<TaskItem?>(null) }
     val scope = rememberCoroutineScope()
 
-    var taskForTargetMove by remember { mutableStateOf<TaskItem?>(null) }
-    var taskForTargetCopy by remember { mutableStateOf<TaskItem?>(null) }
-
+    var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
     var customHierarchyTransferBatch by remember { mutableStateOf<List<TaskItem>?>(null) }
     var isCustomHierarchyTransferCopy by remember { mutableStateOf(false) }
+    var taskForRoleSwap by remember { mutableStateOf<TaskItem?>(null) }
 
     val context = LocalContext.current
 
@@ -191,7 +206,7 @@ fun MainAppScaffold(
             when (selectedTab) {
                 AppNavTab.HOME -> HomeDashboardTab(
                     viewModel = viewModel,
-                    onOpenTask = { task -> activeFullScreenTask = task }
+                    onOpenTask = { task: TaskItem -> activeFullScreenTask = task }
                 )
                 AppNavTab.TASKS -> TasksTreeTab(
                     viewModel = viewModel,
@@ -202,21 +217,22 @@ fun MainAppScaffold(
                             activeFullScreenTask = draft
                         }
                     },
-                    onOpenFullScreen = { task -> activeFullScreenTask = task },
-                    onMoveToTarget = { taskForTargetMove = it },
-                    onCopyToTarget = { taskForTargetCopy = it },
+                    onOpenFullScreen = { task: TaskItem -> activeFullScreenTask = task },
+                    onMoveTask = { task -> taskForAdvancedTransfer = Pair(task, false) },
+                    onCopyTask = { task -> taskForAdvancedTransfer = Pair(task, true) },
                     onCustomHierarchyTransfer = { batch, isCopy ->
                         customHierarchyTransferBatch = batch
                         isCustomHierarchyTransferCopy = isCopy
-                    }
+                    },
+                    onSwapTaskRole = { task -> taskForRoleSwap = task }
                 )
                 AppNavTab.CALENDAR -> CalendarAgendaTab(
                     viewModel = viewModel,
-                    onOpenTask = { task -> activeFullScreenTask = task }
+                    onOpenTask = { task: TaskItem -> activeFullScreenTask = task }
                 )
                 AppNavTab.GANTT -> GanttChartTab(
                     viewModel = viewModel,
-                    onOpenTask = { task -> activeFullScreenTask = task }
+                    onOpenTask = { task: TaskItem -> activeFullScreenTask = task }
                 )
                 AppNavTab.SETTINGS -> SettingsManagerTab(
                     currentTheme = currentTheme,
@@ -234,8 +250,8 @@ fun MainAppScaffold(
                     initialTask = taskToEdit,
                     viewModel = viewModel,
                     onDismiss = { activeFullScreenTask = null },
-                    onMoveTask = { taskForTargetMove = it },
-                    onCopyTask = { taskForTargetCopy = it },
+                    onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
+                    onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
                     onCustomHierarchyTransfer = { batch, isCopy ->
                         customHierarchyTransferBatch = batch
                         isCustomHierarchyTransferCopy = isCopy
@@ -244,31 +260,12 @@ fun MainAppScaffold(
             }
         }
 
-        taskForTargetMove?.let { movingTask ->
-            TaskDestinationDialog(
-                title = "Move '${movingTask.title}' to...",
-                currentTaskId = movingTask.id,
+        taskForAdvancedTransfer?.let { (task, isCopy) ->
+            AdvancedTaskTransferDialog(
+                task = task,
+                isCopy = isCopy,
                 viewModel = viewModel,
-                onDismiss = { taskForTargetMove = null },
-                onSelectTarget = { targetParentId ->
-                    viewModel.moveTaskToTarget(movingTask, targetParentId)
-                    taskForTargetMove = null
-                    Toast.makeText(context, "Task moved successfully", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-
-        taskForTargetCopy?.let { copyingTask ->
-            TaskDestinationDialog(
-                title = "Copy '${copyingTask.title}' to...",
-                currentTaskId = copyingTask.id,
-                viewModel = viewModel,
-                onDismiss = { taskForTargetCopy = null },
-                onSelectTarget = { targetParentId ->
-                    viewModel.copyTaskToTarget(copyingTask.id, targetParentId)
-                    taskForTargetCopy = null
-                    Toast.makeText(context, "Task copied successfully", Toast.LENGTH_SHORT).show()
-                }
+                onDismiss = { taskForAdvancedTransfer = null }
             )
         }
 
@@ -280,11 +277,796 @@ fun MainAppScaffold(
                 onDismiss = { customHierarchyTransferBatch = null }
             )
         }
+
+        taskForRoleSwap?.let { taskA ->
+            SwapTaskRoleDialog(
+                taskA = taskA,
+                viewModel = viewModel,
+                onDismiss = { taskForRoleSwap = null }
+            )
+        }
     }
 }
 
 // -----------------------------------------------------------------------------------------
-// COMPACT CONTACT QUICK ACTION STRIP
+// PAGINATION BAR WIDGET
+// -----------------------------------------------------------------------------------------
+@Composable
+fun TaskPaginationBar(
+    currentPage: Int,
+    totalItems: Int,
+    itemsPerPage: Int = TASKS_PER_PAGE,
+    onPageChange: (Int) -> Unit
+) {
+    val totalPages = remember(totalItems, itemsPerPage) {
+        ceil(totalItems.toDouble() / itemsPerPage).toInt().coerceAtLeast(1)
+    }
+
+    if (totalPages > 1) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp, bottom = 80.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = { onPageChange(currentPage - 1) },
+                    enabled = currentPage > 1,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Prev")
+                }
+
+                Text(
+                    text = "Page $currentPage of $totalPages ($totalItems items)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                OutlinedButton(
+                    onClick = { onPageChange(currentPage + 1) },
+                    enabled = currentPage < totalPages,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text("Next")
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.AutoMirrored.Filled.ArrowRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+    } else {
+        Spacer(Modifier.height(80.dp))
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// ADVANCED TRANSFER DIALOG (SKIP SUBTASKS & TARGET HIERARCHY SELECTION)
+// -----------------------------------------------------------------------------------------
+@Composable
+fun AdvancedTaskTransferDialog(
+    task: TaskItem,
+    isCopy: Boolean,
+    viewModel: TaskViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var moveOrCopyAll by remember { mutableStateOf(true) }
+    var selectedSubtaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var allDescendantNodes by remember { mutableStateOf<List<DescendantNode>>(emptyList()) }
+
+    var targetLevel by remember { mutableStateOf(TargetHierarchyLevel.SUB) }
+    var numberOfCopies by remember { mutableIntStateOf(1) }
+    var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
+    var taskDepthsMap by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
+    var selectedTargetIds by remember { mutableStateOf<Set<Long?>>(emptySet()) }
+
+    LaunchedEffect(task.id, isCopy) {
+        scope.launch {
+            allDescendantNodes = viewModel.getAllDescendantsTree(task.id)
+            val parents = viewModel.getAllPotentialParents(task.id, isCopy)
+            potentialParents = parents
+
+            val depths = mutableMapOf<Long, Int>()
+            for (p in parents) {
+                depths[p.id] = viewModel.getTaskDepth(p.id)
+            }
+            taskDepthsMap = depths
+        }
+    }
+
+    val filteredParents = remember(potentialParents, taskDepthsMap, targetLevel) {
+        when (targetLevel) {
+            TargetHierarchyLevel.MAIN -> emptyList()
+            TargetHierarchyLevel.SUB -> potentialParents.filter { (taskDepthsMap[it.id] ?: 0) == 0 }
+            TargetHierarchyLevel.SUBSUB -> potentialParents.filter { (taskDepthsMap[it.id] ?: 0) == 1 }
+            TargetHierarchyLevel.DEEPER -> potentialParents.filter { (taskDepthsMap[it.id] ?: 0) >= 2 }
+            TargetHierarchyLevel.ANY -> potentialParents
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isCopy) Icons.Default.ContentCopy else Icons.Default.DriveFileMove,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (isCopy) "Copy '${task.title.ifBlank { "Task" }}'" else "Move '${task.title.ifBlank { "Task" }}'",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                if (allDescendantNodes.isNotEmpty()) {
+                    Text("1. Subtask Scope:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = moveOrCopyAll, onClick = { moveOrCopyAll = true })
+                        Spacer(Modifier.width(6.dp))
+                        Text("Entire Tree (${allDescendantNodes.size} descendants)")
+                    }
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = !moveOrCopyAll, onClick = { moveOrCopyAll = false })
+                        Spacer(Modifier.width(6.dp))
+                        Text("Select specific subtasks (intermediate subtasks can be skipped)")
+                    }
+
+                    if (!moveOrCopyAll) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 180.dp)
+                        ) {
+                            LazyColumn(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                items(allDescendantNodes, key = { it.task.id }) { node ->
+                                    val isChecked = node.task.id in selectedSubtaskIds
+                                    val indentPrefix = "—".repeat(node.depthLevel)
+                                    val levelTag = when (node.depthLevel) {
+                                        1 -> "[Sub]"
+                                        2 -> "[Sub-Sub]"
+                                        else -> "[Sub-Sub-Sub]"
+                                    }
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                selectedSubtaskIds = if (isChecked) selectedSubtaskIds - node.task.id else selectedSubtaskIds + node.task.id
+                                            }
+                                            .padding(start = ((node.depthLevel - 1) * 10).dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = isChecked,
+                                            onCheckedChange = {
+                                                selectedSubtaskIds = if (isChecked) selectedSubtaskIds - node.task.id else selectedSubtaskIds + node.task.id
+                                            }
+                                        )
+                                        Text(
+                                            text = "$indentPrefix $levelTag ${node.task.title.ifBlank { "Task #${node.task.id}" }}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = if (node.depthLevel == 1) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    HorizontalDivider()
+                }
+
+                Text("2. Target Hierarchy Level:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    TargetHierarchyLevel.values().forEach { level ->
+                        FilterChip(
+                            selected = targetLevel == level,
+                            onClick = {
+                                targetLevel = level
+                                selectedTargetIds = if (level == TargetHierarchyLevel.MAIN) setOf(null) else emptySet()
+                            },
+                            label = { Text(level.title) }
+                        )
+                    }
+                }
+
+                if (targetLevel == TargetHierarchyLevel.MAIN) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Will be placed at Root Level as a Main Task", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Choose parent task for '${targetLevel.title}':",
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp)
+                    ) {
+                        if (filteredParents.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "No available parent tasks found for ${targetLevel.title}.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.padding(6.dp)) {
+                                items(filteredParents, key = { it.id }) { candidate ->
+                                    val isChecked = candidate.id in selectedTargetIds
+                                    val candidateDepth = taskDepthsMap[candidate.id] ?: 0
+                                    val layerName = when (candidateDepth) {
+                                        0 -> "Main Task"
+                                        1 -> "Subtask"
+                                        2 -> "Sub-Subtask"
+                                        else -> "Layer ${candidateDepth + 1}"
+                                    }
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                selectedTargetIds = if (isCopy) {
+                                                    if (isChecked) selectedTargetIds - candidate.id else selectedTargetIds + candidate.id
+                                                } else {
+                                                    setOf(candidate.id)
+                                                }
+                                            }
+                                            .padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (isCopy) {
+                                            Checkbox(
+                                                checked = isChecked,
+                                                onCheckedChange = {
+                                                    selectedTargetIds = if (isChecked) selectedTargetIds - candidate.id else selectedTargetIds + candidate.id
+                                                }
+                                            )
+                                        } else {
+                                            RadioButton(
+                                                selected = isChecked,
+                                                onClick = { selectedTargetIds = setOf(candidate.id) }
+                                            )
+                                        }
+                                        Spacer(Modifier.width(6.dp))
+                                        Column {
+                                            Text(candidate.title.ifBlank { "Task #${candidate.id}" }, fontWeight = FontWeight.Medium)
+                                            Text("Parent Type: $layerName", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isCopy) {
+                    HorizontalDivider()
+                    Text("3. Number of Copies to Make:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalIconButton(
+                            onClick = { if (numberOfCopies > 1) numberOfCopies-- },
+                            enabled = numberOfCopies > 1
+                        ) {
+                            Icon(Icons.Default.Remove, contentDescription = "Minus")
+                        }
+
+                        Text(
+                            text = "$numberOfCopies copy${if (numberOfCopies > 1) "ies" else ""}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        FilledTonalIconButton(onClick = { numberOfCopies++ }) {
+                            Icon(Icons.Default.Add, contentDescription = "Add")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = selectedTargetIds.isNotEmpty() || targetLevel == TargetHierarchyLevel.MAIN,
+                onClick = {
+                    val targets = if (targetLevel == TargetHierarchyLevel.MAIN) setOf(null) else selectedTargetIds
+                    if (isCopy) {
+                        viewModel.executeAdvancedCopy(
+                            task = task,
+                            targetParentIds = targets,
+                            numberOfCopies = numberOfCopies,
+                            copyAllSubtasks = moveOrCopyAll,
+                            selectedSubtaskIds = selectedSubtaskIds
+                        )
+                        Toast.makeText(context, "Copied as ${targetLevel.title} successfully ✓", Toast.LENGTH_SHORT).show()
+                    } else {
+                        viewModel.executeAdvancedMove(
+                            task = task,
+                            targetParentIds = targets,
+                            moveAllSubtasks = moveOrCopyAll,
+                            selectedSubtaskIds = selectedSubtaskIds
+                        )
+                        Toast.makeText(context, "Moved as ${targetLevel.title} successfully ✓", Toast.LENGTH_SHORT).show()
+                    }
+                    onDismiss()
+                }
+            ) {
+                Text(if (isCopy) "Confirm Copy (${numberOfCopies}x)" else "Confirm Move")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+// -----------------------------------------------------------------------------------------
+// CUSTOM MULTI-TASK HIERARCHY TRANSFER DIALOG & PICKER
+// -----------------------------------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CustomHierarchyTransferDialog(
+    tasksToTransfer: List<TaskItem>,
+    isCopy: Boolean,
+    viewModel: TaskViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    var numberOfCopies by remember { mutableIntStateOf(1) }
+    var taskDepthsMap by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(allTasks) {
+        scope.launch {
+            val depths = mutableMapOf<Long, Int>()
+            for (t in allTasks) {
+                depths[t.id] = viewModel.getTaskDepth(t.id)
+            }
+            taskDepthsMap = depths
+        }
+    }
+
+    val transferredIds = remember(tasksToTransfer) { tasksToTransfer.map { it.id }.toSet() }
+
+    val availableMainTasks = remember(allTasks, taskDepthsMap, transferredIds) {
+        allTasks.filter { it.id !in transferredIds && (taskDepthsMap[it.id] ?: 0) == 0 }
+    }
+    val availableSubTasks = remember(allTasks, taskDepthsMap, transferredIds) {
+        allTasks.filter { it.id !in transferredIds && (taskDepthsMap[it.id] ?: 0) == 1 }
+    }
+
+    val transferPlans = remember(tasksToTransfer) {
+        mutableStateListOf<TaskViewModel.TaskHierarchyPlan>().apply {
+            addAll(tasksToTransfer.map { TaskViewModel.TaskHierarchyPlan(task = it) })
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isCopy) Icons.Default.ContentCopy else Icons.Default.DriveFileMove,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (isCopy) "Custom Copy (${tasksToTransfer.size})" else "Custom Move (${tasksToTransfer.size})",
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AssistChip(
+                        onClick = {
+                            transferPlans.forEachIndexed { i, plan ->
+                                transferPlans[i] = plan.copy(targetRole = TaskViewModel.CustomTargetRole.MAIN_TASK, chosenParentId = null)
+                            }
+                        },
+                        label = { Text("All as Main") }
+                    )
+                    AssistChip(
+                        onClick = {
+                            val defaultMain = availableMainTasks.firstOrNull()?.id
+                            transferPlans.forEachIndexed { i, plan ->
+                                transferPlans[i] = plan.copy(targetRole = TaskViewModel.CustomTargetRole.SUB_TASK, chosenParentId = defaultMain)
+                            }
+                        },
+                        label = { Text("All as Subtasks") }
+                    )
+                }
+
+                HorizontalDivider()
+
+                transferPlans.forEachIndexed { index, plan ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "${index + 1}. ${plan.task.title.ifBlank { "Task #${plan.task.id}" }}",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                TaskViewModel.CustomTargetRole.values().forEach { role ->
+                                    if (role == TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED && tasksToTransfer.size <= 1) return@forEach
+
+                                    FilterChip(
+                                        selected = plan.targetRole == role,
+                                        onClick = {
+                                            val defaultParent = when (role) {
+                                                TaskViewModel.CustomTargetRole.MAIN_TASK -> null
+                                                TaskViewModel.CustomTargetRole.SUB_TASK -> availableMainTasks.firstOrNull()?.id
+                                                TaskViewModel.CustomTargetRole.SUB_SUB_TASK -> availableSubTasks.firstOrNull()?.id
+                                                TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED -> tasksToTransfer.firstOrNull { it.id != plan.task.id }?.id
+                                            }
+                                            transferPlans[index] = plan.copy(
+                                                targetRole = role,
+                                                chosenParentId = if (role != TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED) defaultParent else null,
+                                                chosenTransferredParentTaskId = if (role == TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED) defaultParent else null
+                                            )
+                                        },
+                                        label = { Text(role.title) }
+                                    )
+                                }
+                            }
+
+                            when (plan.targetRole) {
+                                TaskViewModel.CustomTargetRole.MAIN_TASK -> {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = "✓ Root Level Main Task (No Parent)",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(8.dp)
+                                        )
+                                    }
+                                }
+                                TaskViewModel.CustomTargetRole.SUB_TASK -> {
+                                    ParentDropdownPicker(
+                                        label = "Parent Main Task:",
+                                        candidates = availableMainTasks,
+                                        selectedId = plan.chosenParentId,
+                                        onSelect = { transferPlans[index] = plan.copy(chosenParentId = it) }
+                                    )
+                                }
+                                TaskViewModel.CustomTargetRole.SUB_SUB_TASK -> {
+                                    ParentDropdownPicker(
+                                        label = "Parent Subtask:",
+                                        candidates = availableSubTasks,
+                                        selectedId = plan.chosenParentId,
+                                        onSelect = { transferPlans[index] = plan.copy(chosenParentId = it) }
+                                    )
+                                }
+                                TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED -> {
+                                    val otherTransferred = tasksToTransfer.filter { it.id != plan.task.id }
+                                    ParentDropdownPicker(
+                                        label = "Nest under transferred task:",
+                                        candidates = otherTransferred,
+                                        selectedId = plan.chosenTransferredParentTaskId,
+                                        onSelect = { transferPlans[index] = plan.copy(chosenTransferredParentTaskId = it) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isCopy) {
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Number of copies:", fontWeight = FontWeight.SemiBold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalIconButton(
+                                onClick = { if (numberOfCopies > 1) numberOfCopies-- },
+                                enabled = numberOfCopies > 1
+                            ) { Icon(Icons.Default.Remove, contentDescription = null) }
+                            Text("$numberOfCopies", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
+                            FilledTonalIconButton(onClick = { numberOfCopies++ }) {
+                                Icon(Icons.Default.Add, contentDescription = null)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    viewModel.executeCustomHierarchyTransfer(
+                        plans = transferPlans,
+                        isCopy = isCopy,
+                        numberOfCopies = numberOfCopies,
+                        onComplete = {
+                            Toast.makeText(context, if (isCopy) "Tasks copied successfully ✓" else "Tasks moved successfully ✓", Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        }
+                    )
+                }
+            ) {
+                Text(if (isCopy) "Confirm Copy (${numberOfCopies}x)" else "Confirm Move")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun ParentDropdownPicker(
+    label: String,
+    candidates: List<TaskItem>,
+    selectedId: Long?,
+    onSelect: (Long) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedTask = candidates.find { it.id == selectedId }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        Box {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = selectedTask?.title?.ifBlank { "Task #${selectedTask.id}" } ?: "Select parent task...",
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+            }
+
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.heightIn(max = 240.dp)
+            ) {
+                if (candidates.isEmpty()) {
+                    DropdownMenuItem(text = { Text("No matching tasks available") }, onClick = { expanded = false })
+                } else {
+                    candidates.forEach { candidate ->
+                        DropdownMenuItem(
+                            text = { Text(candidate.title.ifBlank { "Task #${candidate.id}" }) },
+                            onClick = {
+                                onSelect(candidate.id)
+                                expanded = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------------------
+// SWAP TASK ROLE DIALOG
+// -----------------------------------------------------------------------------------------
+@Composable
+fun SwapTaskRoleDialog(
+    taskA: TaskItem,
+    viewModel: TaskViewModel,
+    onDismiss: () -> Unit
+) {
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedTaskC by remember { mutableStateOf<TaskItem?>(null) }
+    var nestUnder by remember { mutableStateOf(true) }
+
+    val eligibleTasks = remember(allTasks, taskA.id, searchQuery) {
+        allTasks.filter { other ->
+            other.id != taskA.id &&
+            (searchQuery.isBlank() || other.title.contains(searchQuery, ignoreCase = true))
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SwapVert, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("Reverse Roles / Swap Hierarchy", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text("Current Task (A):", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(taskA.title.ifBlank { "Task #${taskA.id}" }, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Text("Reversal Mode:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { nestUnder = true },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = nestUnder, onClick = { nestUnder = true })
+                        Spacer(Modifier.width(6.dp))
+                        Column {
+                            Text("Promote C as Subtask, nest A under C", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                            Text("C takes A's parent; A becomes Sub-subtask under C", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { nestUnder = false },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = !nestUnder, onClick = { nestUnder = false })
+                        Spacer(Modifier.width(6.dp))
+                        Column {
+                            Text("Direct Slot Swap", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                            Text("C moves to A's branch; A moves to C's branch", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
+                Text("Select Target Task (C):", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search task to swap with...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 200.dp)
+                ) {
+                    LazyColumn(modifier = Modifier.padding(4.dp)) {
+                        items(eligibleTasks, key = { it.id }) { candidate ->
+                            val isSelected = candidate.id == selectedTaskC?.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedTaskC = candidate }
+                                    .background(
+                                        if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                        RoundedCornerShape(6.dp)
+                                    )
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = isSelected, onClick = { selectedTaskC = candidate })
+                                Spacer(Modifier.width(8.dp))
+                                Column {
+                                    Text(candidate.title.ifBlank { "Task #${candidate.id}" }, fontWeight = FontWeight.Medium)
+                                    Text(
+                                        text = if (candidate.parentId == null) "Main Task" else "Subtask / Lower Task",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = selectedTaskC != null,
+                onClick = {
+                    selectedTaskC?.let { taskC ->
+                        viewModel.reverseTaskRoles(
+                            taskA = taskA,
+                            taskC = taskC,
+                            nestUnder = nestUnder,
+                            onComplete = onDismiss
+                        )
+                    }
+                }
+            ) {
+                Text("Confirm Swap")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+// -----------------------------------------------------------------------------------------
+// CONTACT ACTION STRIP
 // -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
@@ -336,12 +1118,7 @@ fun ContactActionRow(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchDialer(context, phoneNumber) }
             ) {
-                Icon(
-                    Icons.Default.Phone,
-                    contentDescription = "Call",
-                    tint = Color(0xFF1976D2),
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.Default.Phone, contentDescription = "Call", tint = Color(0xFF1976D2), modifier = Modifier.size(14.dp))
             }
             Spacer(Modifier.width(4.dp))
 
@@ -349,12 +1126,7 @@ fun ContactActionRow(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchSms(context, phoneNumber) }
             ) {
-                Icon(
-                    Icons.Default.ChatBubble,
-                    contentDescription = "Text SMS",
-                    tint = Color(0xFFF57C00),
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.Default.ChatBubble, contentDescription = "Text SMS", tint = Color(0xFFF57C00), modifier = Modifier.size(14.dp))
             }
             Spacer(Modifier.width(4.dp))
 
@@ -362,12 +1134,7 @@ fun ContactActionRow(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchWhatsApp(context, phoneNumber) }
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "WhatsApp",
-                    tint = Color(0xFF2E7D32),
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "WhatsApp", tint = Color(0xFF2E7D32), modifier = Modifier.size(14.dp))
             }
             Spacer(Modifier.width(4.dp))
 
@@ -376,12 +1143,7 @@ fun ContactActionRow(
                     modifier = Modifier.size(28.dp),
                     onClick = { showExtraMenu = true }
                 ) {
-                    Icon(
-                        Icons.Default.Apps,
-                        contentDescription = "All Messaging Apps",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(15.dp)
-                    )
+                    Icon(Icons.Default.Apps, contentDescription = "All Apps", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
                 }
 
                 DropdownMenu(
@@ -428,7 +1190,7 @@ fun ContactActionRow(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK STATUS ROW
+// REUSABLE TASK METADATA STATUS ROW
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskMetadataStatusRow(task: TaskItem) {
@@ -459,61 +1221,107 @@ fun TaskMetadataStatusRow(
 ) {
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
-    if (reminderTimestamp != null || dueTimestamp != null || repeatRule != RecurrenceRule.NONE) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            reminderTimestamp?.let { rem ->
-                Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f), shape = RoundedCornerShape(4.dp)) {
-                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(3.dp))
-                        Text("Remind: ${dateFormat.format(Date(rem))}", style = MaterialTheme.typography.labelSmall)
-                    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(top = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isCompleted) {
+            val doneDate = completedTimestamp ?: lastModifiedTimestamp
+            Surface(
+                color = Color(0xFFE8F5E9),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = "Completed", modifier = Modifier.size(13.dp), tint = Color(0xFF2E7D32))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = "Completed: ${dateFormat.format(Date(doneDate))}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
-
+        } else {
             dueTimestamp?.let { due ->
-                val isOverdue = due < System.currentTimeMillis() && !isCompleted
+                val isOverdue = due < System.currentTimeMillis()
                 Surface(
                     color = if (isOverdue) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(4.dp)
                 ) {
-                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Event, contentDescription = null, modifier = Modifier.size(12.dp), tint = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline)
+                    Row(
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Event,
+                            contentDescription = "Due Date",
+                            modifier = Modifier.size(12.dp),
+                            tint = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline
+                        )
                         Spacer(Modifier.width(3.dp))
                         Text(
-                            "Due: ${dateFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}",
+                            text = "Due: ${dateFormat.format(Date(due))}${if (isOverdue) " (Overdue)" else ""}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (isOverdue) FontWeight.Bold else FontWeight.Normal
                         )
                     }
                 }
             }
+        }
 
-            if (repeatRule != RecurrenceRule.NONE) {
-                Surface(color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.6f), shape = RoundedCornerShape(4.dp)) {
-                    Row(modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
-                        Spacer(Modifier.width(3.dp))
-                        Text(
-                            text = when (repeatRule) {
-                                RecurrenceRule.CUSTOM -> "Every ${repeatIntervalDays}d ${repeatIntervalHours}h ${repeatIntervalMinutes}m"
-                                else -> repeatRule.name
-                            },
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
+        reminderTimestamp?.let { rem ->
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Alarm, contentDescription = "Reminder Alert", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(3.dp))
+                    Text("Remind: ${dateFormat.format(Date(rem))}", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        if (repeatRule != RecurrenceRule.NONE) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Repeat, contentDescription = "Repeat Pattern", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                    Spacer(Modifier.width(3.dp))
+                    Text(
+                        text = when (repeatRule) {
+                            RecurrenceRule.CUSTOM -> "Every ${repeatIntervalDays}d ${repeatIntervalHours}h ${repeatIntervalMinutes}m"
+                            else -> repeatRule.name
+                        },
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
             }
         }
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// FULL SCREEN NOTES EDITOR DIALOG
+// -----------------------------------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FullScreenNotesEditorDialog(
     initialNotes: String,
@@ -521,59 +1329,51 @@ fun FullScreenNotesEditorDialog(
     onDismiss: () -> Unit,
     onSaveNotes: (String) -> Unit
 ) {
-    var currentText by remember { mutableStateOf(initialNotes) }
+    var editableNotes by remember { mutableStateOf(initialNotes) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Scaffold(
             topBar = {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
-                    shadowElevation = 2.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                            }
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = "Notes: ${taskTitle.ifBlank { "Task" }}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                TopAppBar(
+                    title = {
+                        Text("Notes: ${taskTitle.ifBlank { "Task" }}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Default.Close, contentDescription = "Close")
                         }
-                        Button(onClick = {
-                            onSaveNotes(currentText)
-                            onDismiss()
-                        }) {
-                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                    },
+                    actions = {
+                        Button(
+                            onClick = {
+                                onSaveNotes(editableNotes)
+                                onDismiss()
+                            }
+                        ) {
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Save Notes")
+                            Text("Done")
                         }
                     }
-                }
+                )
             }
-        ) { padding ->
-            OutlinedTextField(
-                value = currentText,
-                onValueChange = { currentText = it },
+        ) { paddingValues ->
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp),
-                placeholder = { Text("Write extensive task descriptions, meeting notes, checklist details, code snippets, or links here...") }
-            )
+                    .padding(paddingValues)
+                    .padding(16.dp)
+            ) {
+                OutlinedTextField(
+                    value = editableNotes,
+                    onValueChange = { editableNotes = it },
+                    placeholder = { Text("Write extensive descriptions, notes, ideas...") },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
     }
 }
@@ -687,6 +1487,18 @@ fun TaskFilterHeaderBar(
     var availableLocations by remember { mutableStateOf<List<String>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
+    val isAnyFilterActive = remember(filterState, searchQuery) {
+        searchQuery.isNotBlank() ||
+        filterState.priorities.isNotEmpty() ||
+        filterState.statusPending != null ||
+        filterState.mustHaveContact ||
+        filterState.selectedTags.isNotEmpty() ||
+        filterState.createdFromMs != null ||
+        filterState.dueFromMs != null ||
+        filterState.mustHaveLocation ||
+        filterState.selectedLocations.isNotEmpty()
+    }
+
     LaunchedEffect(showFilterSheet) {
         if (showFilterSheet) {
             scope.launch {
@@ -702,33 +1514,78 @@ fun TaskFilterHeaderBar(
             .background(MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp))
             .padding(8.dp)
     ) {
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            placeholder = { Text("Search task, tag, note, contact, location...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { onSearchQueryChange("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                placeholder = { Text("Search task, tag, note, contact, location...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChange("") }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear")
+                            }
+                        }
+                        IconButton(onClick = { showFilterSheet = !showFilterSheet }) {
+                            BadgedBox(
+                                badge = {
+                                    if (isAnyFilterActive) {
+                                        Badge { Text("!") }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Default.FilterList,
+                                    contentDescription = "Filters",
+                                    tint = if (isAnyFilterActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                )
+                            }
                         }
                     }
-                    IconButton(onClick = { showFilterSheet = !showFilterSheet }) {
-                        Icon(
-                            Icons.Default.FilterList,
-                            contentDescription = "Filters",
-                            tint = if (filterState.priorities.isNotEmpty() || filterState.statusPending != null || filterState.mustHaveContact || filterState.mustHaveLocation || filterState.selectedLocations.isNotEmpty() || filterState.selectedTags.isNotEmpty() || filterState.createdFromMs != null || filterState.dueFromMs != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                        )
+                },
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+
+            if (isAnyFilterActive) {
+                Spacer(Modifier.width(6.dp))
+                IconButton(
+                    onClick = {
+                        onSearchQueryChange("")
+                        viewModel.updateFilter(FilterCriteria())
+                        Toast.makeText(context, "Filters reset", Toast.LENGTH_SHORT).show()
                     }
+                ) {
+                    Icon(Icons.Default.FilterAltOff, contentDescription = "Reset Filters", tint = MaterialTheme.colorScheme.error)
                 }
-            },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
+            }
+        }
 
         AnimatedVisibility(visible = showFilterSheet) {
             Column(modifier = Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Filter Options", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    TextButton(
+                        onClick = {
+                            onSearchQueryChange("")
+                            viewModel.updateFilter(FilterCriteria())
+                            Toast.makeText(context, "All filters cleared", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Reset All")
+                    }
+                }
+
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Location:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.align(Alignment.CenterVertically))
 
@@ -857,6 +1714,9 @@ fun TaskFilterHeaderBar(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 1. HOME DASHBOARD TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun HomeDashboardTab(
     viewModel: TaskViewModel,
@@ -866,6 +1726,30 @@ fun HomeDashboardTab(
     var searchQuery by remember { mutableStateOf("") }
     val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
     val filterState by viewModel.filterState.collectAsState()
+
+    var showTodayNotificationsDialog by remember { mutableStateOf(false) }
+    var currentPage by remember { mutableIntStateOf(1) }
+
+    var isMultiSelectTasksMode by remember { mutableStateOf(false) }
+    var selectedTaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showBatchDeleteTasksConfirm by remember { mutableStateOf(false) }
+
+    val todayDueTasks = remember(allTasks) {
+        val endOfTodayMs = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+            set(Calendar.SECOND, 59)
+            set(Calendar.MILLISECOND, 999)
+        }.timeInMillis
+
+        allTasks.filter { task ->
+            if (task.isCompleted) return@filter false
+            val hasDueTodayOrPast = task.dueTimestamp != null && task.dueTimestamp <= endOfTodayMs
+            val hasReminderTodayOrPast = task.reminderTimestamp != null && task.reminderTimestamp <= endOfTodayMs
+            val hasRepeatActive = task.repeatRule != RecurrenceRule.NONE && (task.repeatStartDate == null || task.repeatStartDate <= endOfTodayMs)
+            hasDueTodayOrPast || hasReminderTodayOrPast || hasRepeatActive
+        }
+    }
 
     val totalCreated = allTasks.size
     val totalCompleted = allTasks.count { it.isCompleted }
@@ -888,13 +1772,95 @@ fun HomeDashboardTab(
         }
     }
 
+    val paginatedTasks = remember(displayedTasks, currentPage) {
+        val startIndex = (currentPage - 1) * TASKS_PER_PAGE
+        displayedTasks.drop(startIndex).take(TASKS_PER_PAGE)
+    }
+
+    if (showBatchDeleteTasksConfirm) {
+        DeleteConfirmationDialog(
+            title = "Delete ${selectedTaskIds.size} Task(s)?",
+            message = "Are you sure you want to delete the ${selectedTaskIds.size} selected tasks? All subtasks, checklists, attachments, and calendar entries will also be permanently deleted.",
+            onConfirm = {
+                selectedTaskIds.forEach { id ->
+                    allTasks.find { it.id == id }?.let { viewModel.deleteTask(it) }
+                }
+                selectedTaskIds = emptySet()
+                isMultiSelectTasksMode = false
+                showBatchDeleteTasksConfirm = false
+            },
+            onDismiss = { showBatchDeleteTasksConfirm = false }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
+
+        if (isMultiSelectTasksMode) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${selectedTaskIds.size} selected",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                selectedTaskIds = if (selectedTaskIds.size == displayedTasks.size) {
+                                    emptySet()
+                                } else {
+                                    displayedTasks.map { it.id }.toSet()
+                                }
+                            }
+                        ) {
+                            Text(if (selectedTaskIds.size == displayedTasks.size) "Deselect All" else "Select All")
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (selectedTaskIds.isNotEmpty()) {
+                            Button(
+                                onClick = { showBatchDeleteTasksConfirm = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Delete")
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isMultiSelectTasksMode = false
+                                selectedTaskIds = emptySet()
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Cancel")
+                        }
+                    }
+                }
+            }
+        }
 
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
@@ -903,7 +1869,56 @@ fun HomeDashboardTab(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Task Analytics & Metrics Summary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface,
+                                shape = RoundedCornerShape(20.dp),
+                                modifier = Modifier.padding(end = 10.dp)
+                            ) {
+                                IconButton(
+                                    onClick = { showTodayNotificationsDialog = true },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    BadgedBox(
+                                        badge = {
+                                            if (todayDueTasks.isNotEmpty()) {
+                                                Badge(
+                                                    containerColor = MaterialTheme.colorScheme.error,
+                                                    contentColor = MaterialTheme.colorScheme.onError
+                                                ) {
+                                                    Text("${todayDueTasks.size}")
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = if (todayDueTasks.isNotEmpty()) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
+                                            contentDescription = "Alerts",
+                                            tint = if (todayDueTasks.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "Task Analytics & Summary",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            if (!isMultiSelectTasksMode && displayedTasks.isNotEmpty()) {
+                                TextButton(onClick = { isMultiSelectTasksMode = true }) {
+                                    Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Select Tasks")
+                                }
+                            }
+                        }
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -932,10 +1947,11 @@ fun HomeDashboardTab(
                 }
             }
 
-            items(displayedTasks, key = { it.id }) { task ->
+            items(paginatedTasks, key = { it.id }) { task ->
                 val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
                 val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
                 val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
+                val isTaskSelected = task.id in selectedTaskIds
 
                 var hierarchyPath by remember { mutableStateOf("") }
                 val scope = rememberCoroutineScope()
@@ -946,7 +1962,16 @@ fun HomeDashboardTab(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onOpenTask(task) },
+                        .then(
+                            if (isTaskSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier
+                        )
+                        .clickable {
+                            if (isMultiSelectTasksMode) {
+                                selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
+                            } else {
+                                onOpenTask(task)
+                            }
+                        },
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -961,6 +1986,15 @@ fun HomeDashboardTab(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
+                            if (isMultiSelectTasksMode) {
+                                Checkbox(
+                                    checked = isTaskSelected,
+                                    onCheckedChange = {
+                                        selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
+                                    }
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
                             PriorityBadge(task.priority)
                             if (subtaskCount > 0) {
                                 Spacer(Modifier.width(8.dp))
@@ -971,20 +2005,31 @@ fun HomeDashboardTab(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = task.isCompleted,
-                                onCheckedChange = { viewModel.toggleTaskCompletion(task) }
-                            )
-                            Spacer(Modifier.width(6.dp))
+                            if (!isMultiSelectTasksMode) {
+                                Checkbox(
+                                    checked = task.isCompleted,
+                                    onCheckedChange = { viewModel.toggleTaskCompletion(task) }
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
+
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable { onOpenTask(task) }
+                                    .clickable {
+                                        if (isMultiSelectTasksMode) {
+                                            selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
+                                        } else {
+                                            onOpenTask(task)
+                                        }
+                                    }
                             ) {
                                 HighlightedText(
                                     text = task.title.ifBlank { "Untitled Task" },
                                     query = searchQuery,
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                                    ),
                                     fontWeight = FontWeight.SemiBold
                                 )
 
@@ -1061,25 +2106,133 @@ fun HomeDashboardTab(
                     }
                 }
             }
+
+            item {
+                TaskPaginationBar(
+                    currentPage = currentPage,
+                    totalItems = displayedTasks.size,
+                    itemsPerPage = TASKS_PER_PAGE,
+                    onPageChange = { currentPage = it }
+                )
+            }
+        }
+
+        if (showTodayNotificationsDialog) {
+            AlertDialog(
+                onDismissRequest = { showTodayNotificationsDialog = false },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Active Alerts Till Today (${todayDueTasks.size})")
+                    }
+                },
+                text = {
+                    if (todayDueTasks.isEmpty()) {
+                        Text("No pending tasks due or scheduled for reminder/repeat today.", style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 380.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(todayDueTasks, key = { it.id }) { item ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showTodayNotificationsDialog = false
+                                            onOpenTask(item)
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            Text(item.title.ifBlank { "Untitled" }, fontWeight = FontWeight.Bold)
+
+                                            item.dueTimestamp?.let { due ->
+                                                Text(
+                                                    text = "📅 Due: ${SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(due))}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+
+                                            item.reminderTimestamp?.let { rem ->
+                                                Text(
+                                                    text = "⏰ Reminder: ${SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(rem))}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+
+                                            if (item.repeatRule != RecurrenceRule.NONE) {
+                                                val repDetail = when (item.repeatRule) {
+                                                    RecurrenceRule.CUSTOM -> "Every ${item.repeatIntervalDays}d ${item.repeatIntervalHours}h ${item.repeatIntervalMinutes}m"
+                                                    else -> item.repeatRule.name
+                                                }
+                                                Text(
+                                                    text = "🔁 Repeat: $repDetail",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.tertiary,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                        Icon(Icons.AutoMirrored.Filled.ArrowRight, contentDescription = "Open Task")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showTodayNotificationsDialog = false }) {
+                        Text("Close")
+                    }
+                }
+            )
         }
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 2. TASKS TREE TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
     viewModel: TaskViewModel,
     viewMode: TaskViewMode,
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
-    onMoveToTarget: (TaskItem) -> Unit,
-    onCopyToTarget: (TaskItem) -> Unit,
-    onCustomHierarchyTransfer: (List<TaskItem>, Boolean) -> Unit
+    onMoveTask: (TaskItem) -> Unit,
+    onCopyTask: (TaskItem) -> Unit,
+    onCustomHierarchyTransfer: (List<TaskItem>, Boolean) -> Unit,
+    onSwapTaskRole: (TaskItem) -> Unit
 ) {
     val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())
     var searchQuery by remember { mutableStateOf("") }
     val searchResults by viewModel.searchTasks(searchQuery).collectAsState(initial = emptyList())
     val filterState by viewModel.filterState.collectAsState()
+    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var currentPage by remember { mutableIntStateOf(1) }
+
+    var isMultiSelectTreeMode by remember { mutableStateOf(false) }
+    var selectedTaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
 
     val displayedTasks = remember(rootTasks, searchResults, searchQuery, filterState) {
         val base = if (searchQuery.isNotBlank()) searchResults else rootTasks
@@ -1094,8 +2247,102 @@ fun TasksTreeTab(
         }
     }
 
+    val paginatedTasks = remember(displayedTasks, currentPage) {
+        val startIndex = (currentPage - 1) * TASKS_PER_PAGE
+        displayedTasks.drop(startIndex).take(TASKS_PER_PAGE)
+    }
+
+    if (showBatchDeleteConfirm) {
+        DeleteConfirmationDialog(
+            title = "Delete ${selectedTaskIds.size} Task(s)?",
+            message = "Are you sure you want to delete the ${selectedTaskIds.size} selected tasks and their subtrees?",
+            onConfirm = {
+                selectedTaskIds.forEach { id ->
+                    allTasks.find { it.id == id }?.let { viewModel.deleteTask(it) }
+                }
+                selectedTaskIds = emptySet()
+                isMultiSelectTreeMode = false
+                showBatchDeleteConfirm = false
+            },
+            onDismiss = { showBatchDeleteConfirm = false }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
+
+        if (isMultiSelectTreeMode) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${selectedTaskIds.size} selected",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                selectedTaskIds = if (selectedTaskIds.size == displayedTasks.size) {
+                                    emptySet()
+                                } else {
+                                    displayedTasks.map { it.id }.toSet()
+                                }
+                            }
+                        ) {
+                            Text(if (selectedTaskIds.size == displayedTasks.size) "Deselect All" else "Select All")
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (selectedTaskIds.isNotEmpty()) {
+                            Button(
+                                onClick = {
+                                    val selectedTasksList = allTasks.filter { it.id in selectedTaskIds }
+                                    onCustomHierarchyTransfer(selectedTasksList, false)
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.AccountTree, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Custom Transfer")
+                            }
+
+                            Button(
+                                onClick = { showBatchDeleteConfirm = true },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Delete")
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                isMultiSelectTreeMode = false
+                                selectedTaskIds = emptySet()
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Cancel")
+                        }
+                    }
+                }
+            }
+        }
 
         Row(
             modifier = Modifier
@@ -1106,6 +2353,13 @@ fun TasksTreeTab(
         ) {
             Text("Hierarchical Tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row {
+                IconButton(onClick = { isMultiSelectTreeMode = !isMultiSelectTreeMode }) {
+                    Icon(
+                        Icons.Default.Checklist,
+                        contentDescription = "Multi Select",
+                        tint = if (isMultiSelectTreeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                    )
+                }
                 IconButton(onClick = {
                     viewModel.syncAllTasksToCalendar { count ->
                         Toast.makeText(context, "Synced $count task(s) to Google Calendar", Toast.LENGTH_SHORT).show()
@@ -1126,24 +2380,53 @@ fun TasksTreeTab(
                 .fillMaxSize()
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-            items(displayedTasks, key = { it.id }) { task ->
-                TaskNodeView(
-                    task = task,
-                    depth = 0,
-                    viewMode = viewMode,
-                    searchQuery = searchQuery,
-                    viewModel = viewModel,
-                    onAddSubtask = onAddSubtask,
-                    onOpenFullScreen = onOpenFullScreen,
-                    onMoveToTarget = onMoveToTarget,
-                    onCopyToTarget = onCopyToTarget,
-                    onCustomHierarchyTransfer = onCustomHierarchyTransfer
+            items(paginatedTasks, key = { it.id }) { task ->
+                val isSelected = task.id in selectedTaskIds
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isMultiSelectTreeMode) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = {
+                                selectedTaskIds = if (isSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
+                            },
+                            modifier = Modifier.padding(start = 6.dp)
+                        )
+                    }
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        TaskNodeView(
+                            task = task,
+                            depth = 0,
+                            viewMode = viewMode,
+                            searchQuery = searchQuery,
+                            viewModel = viewModel,
+                            onAddSubtask = onAddSubtask,
+                            onOpenFullScreen = onOpenFullScreen,
+                            onMoveTask = onMoveTask,
+                            onCopyTask = onCopyTask,
+                            onCustomHierarchyTransfer = onCustomHierarchyTransfer,
+                            onSwapTaskRole = onSwapTaskRole
+                        )
+                    }
+                }
+            }
+
+            item {
+                TaskPaginationBar(
+                    currentPage = currentPage,
+                    totalItems = displayedTasks.size,
+                    itemsPerPage = TASKS_PER_PAGE,
+                    onPageChange = { currentPage = it }
                 )
             }
         }
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 3. CALENDAR AGENDA TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun CalendarAgendaTab(
     viewModel: TaskViewModel,
@@ -1167,7 +2450,9 @@ fun CalendarAgendaTab(
             (filterState.selectedLocations.isEmpty() || (task.locationName != null && task.locationName in filterState.selectedLocations)) &&
             (filterState.createdFromMs == null || (task.createdTimestamp in filterState.createdFromMs!!..filterState.createdToMs!!)) &&
             (filterState.dueFromMs == null || (task.dueTimestamp != null && task.dueTimestamp in filterState.dueFromMs!!..filterState.dueToMs!!))
-        }.sortedBy { it.createdTimestamp }
+        }.sortedBy { task ->
+            if (task.isCompleted) task.completedTimestamp ?: task.lastModifiedTimestamp else task.createdTimestamp
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1198,6 +2483,12 @@ fun CalendarAgendaTab(
                     scope.launch { hierarchyPath = viewModel.getHierarchyPathString(task.id) }
                 }
 
+                val primaryTimestamp = if (task.isCompleted) {
+                    task.completedTimestamp ?: task.lastModifiedTimestamp
+                } else {
+                    task.dueTimestamp ?: task.createdTimestamp
+                }
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1219,16 +2510,28 @@ fun CalendarAgendaTab(
                             Column(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .background(
+                                        if (task.isCompleted) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.primaryContainer
+                                    )
                                     .padding(horizontal = 8.dp, vertical = 6.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(timeFormat.format(Date(task.createdTimestamp)), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text(
+                                    text = timeFormat.format(Date(primaryTimestamp)),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (task.isCompleted) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onPrimaryContainer
+                                )
                             }
                             Spacer(Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(dateFormat.format(Date(task.createdTimestamp)), style = MaterialTheme.typography.labelSmall)
-                                Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text(dateFormat.format(Date(primaryTimestamp)), style = MaterialTheme.typography.labelSmall)
+                                Text(
+                                    text = task.title.ifBlank { "Untitled Task" },
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                                    ),
+                                    fontWeight = FontWeight.SemiBold
+                                )
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     PriorityBadge(task.priority)
                                     if (task.calendarEventId != null) {
@@ -1247,6 +2550,9 @@ fun CalendarAgendaTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 4. GANTT CHART TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun GanttChartTab(
     viewModel: TaskViewModel,
@@ -1263,14 +2569,15 @@ fun GanttChartTab(
         ganttTasks.minOfOrNull { it.createdTimestamp } ?: System.currentTimeMillis()
     }
     val maxTime = remember(ganttTasks) {
-        (ganttTasks.mapNotNull { it.dueTimestamp }.maxOrNull() ?: (System.currentTimeMillis() + 7 * 86400000L))
+        (ganttTasks.mapNotNull { if (it.isCompleted) it.completedTimestamp ?: it.lastModifiedTimestamp else it.dueTimestamp }.maxOrNull()
+            ?: (System.currentTimeMillis() + 7 * 86400000L))
             .coerceAtLeast(minTime + 86400000L)
     }
     val totalDuration = (maxTime - minTime).coerceAtLeast(1L)
 
     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
         Text("Gantt Chart Timeline", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text("Task progression with full hierarchy path and expandable dates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        Text("Task progression with full hierarchy path, completion markers and expandable dates", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         Spacer(Modifier.height(8.dp))
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
@@ -1278,7 +2585,11 @@ fun GanttChartTab(
         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(ganttTasks, key = { it.id }) { task ->
                 val taskStart = task.createdTimestamp
-                val taskEnd = task.dueTimestamp ?: (taskStart + 86400000L)
+                val taskEnd = if (task.isCompleted) {
+                    task.completedTimestamp ?: task.lastModifiedTimestamp
+                } else {
+                    task.dueTimestamp ?: (taskStart + 86400000L)
+                }
 
                 val startFraction = ((taskStart - minTime).toFloat() / totalDuration).coerceIn(0f, 1f)
                 val spanFraction = ((taskEnd - taskStart).toFloat() / totalDuration).coerceIn(0.08f, 1f - startFraction)
@@ -1303,7 +2614,13 @@ fun GanttChartTab(
                         }
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(task.title.ifBlank { "Untitled Task" }, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = task.title.ifBlank { "Untitled Task" },
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                                ),
+                                fontWeight = FontWeight.SemiBold
+                            )
                             PriorityBadge(task.priority)
                         }
 
@@ -1350,6 +2667,15 @@ fun GanttChartTab(
                         AnimatedVisibility(visible = showDetails) {
                             Column(modifier = Modifier.padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text("Created Date: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                                if (task.isCompleted) {
+                                    val completedAt = task.completedTimestamp ?: task.lastModifiedTimestamp
+                                    Text(
+                                        text = "Completed Date: ${dateFormat.format(Date(completedAt))}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFF2E7D32),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                                 Text("Due Date: ${task.dueTimestamp?.let { dateFormat.format(Date(it)) } ?: "None set"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                 if (!task.tags.isNullOrBlank()) {
                                     Text("Tags: #${task.tags.split(",").joinToString(" #")}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
@@ -1363,6 +2689,9 @@ fun GanttChartTab(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// 5. SETTINGS MANAGER TAB
+// -----------------------------------------------------------------------------------------
 @Composable
 fun SettingsManagerTab(
     currentTheme: AppThemeMode,
@@ -1374,27 +2703,52 @@ fun SettingsManagerTab(
     val context = LocalContext.current
     var showThemeDialog by remember { mutableStateOf(false) }
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
+    val scope = rememberCoroutineScope()
 
-    val cloudBackupLauncher = rememberLauncherForActivityResult(
+    val createBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
     ) { uri: Uri? ->
-        uri?.let { destUri ->
-            context.contentResolver.openOutputStream(destUri)?.use { outStream ->
-                viewModel.backupToDevice(outStream) { success ->
-                    Toast.makeText(context, if (success) "Cloud backup saved successfully!" else "Backup failed", Toast.LENGTH_SHORT).show()
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            try {
+                val outputStream = context.contentResolver.openOutputStream(uri)
+                if (outputStream != null) {
+                    viewModel.backupToDevice(outputStream) { success ->
+                        Toast.makeText(
+                            context,
+                            if (success) "Backup saved to device successfully!" else "Backup failed to write",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } else {
+                    Toast.makeText(context, "Cannot open selected storage location", Toast.LENGTH_SHORT).show()
                 }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Backup error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    val cloudRestoreLauncher = rememberLauncherForActivityResult(
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
-        uri?.let { sourceUri ->
-            context.contentResolver.openInputStream(sourceUri)?.use { inStream ->
-                viewModel.restoreBackup(inStream) { success ->
-                    Toast.makeText(context, if (success) "Backup restored successfully from Cloud!" else "Restore failed", Toast.LENGTH_SHORT).show()
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                if (inputStream != null) {
+                    viewModel.restoreBackup(inputStream) { success ->
+                        Toast.makeText(
+                            context,
+                            if (success) "Backup restored successfully from device!" else "Restore failed: Invalid or corrupt zip",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } else {
+                    Toast.makeText(context, "Cannot open selected backup file", Toast.LENGTH_SHORT).show()
                 }
+            } catch (e: Exception) {
+                Toast.makeText(context, "Restore error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1428,14 +2782,14 @@ fun SettingsManagerTab(
 
                 Button(
                     onClick = {
-                        cloudBackupLauncher.launch("ToDoTree_CloudBackup_${System.currentTimeMillis()}.zip")
+                        createBackupLauncher.launch("ToDoTree_DeviceBackup_${System.currentTimeMillis()}.zip")
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Icon(Icons.Default.CloudUpload, contentDescription = null)
+                    Icon(Icons.Default.Save, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Backup to Cloud (Google Drive / Storage)")
+                    Text("Backup to Device (ZIP)")
                 }
 
                 OutlinedButton(
@@ -1459,14 +2813,14 @@ fun SettingsManagerTab(
 
                 Button(
                     onClick = {
-                        cloudRestoreLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+                        restoreBackupLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.CloudDownload, contentDescription = null)
+                    Icon(Icons.Default.Restore, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Restore from Cloud (Google Drive / Storage)")
+                    Text("Restore from Device")
                 }
             }
         }
@@ -1542,9 +2896,10 @@ fun TaskNodeView(
     viewModel: TaskViewModel,
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
-    onMoveToTarget: (TaskItem) -> Unit,
-    onCopyToTarget: (TaskItem) -> Unit,
-    onCustomHierarchyTransfer: (List<TaskItem>, Boolean) -> Unit
+    onMoveTask: (TaskItem) -> Unit,
+    onCopyTask: (TaskItem) -> Unit,
+    onCustomHierarchyTransfer: (List<TaskItem>, Boolean) -> Unit,
+    onSwapTaskRole: (TaskItem) -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
@@ -1558,21 +2913,17 @@ fun TaskNodeView(
     val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
     val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
 
-    var layerLevel by remember { mutableStateOf(1) }
-    var layersBelow by remember { mutableStateOf(0) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val layerLevel = depth + 1
 
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    LaunchedEffect(task.id) {
-        scope.launch {
-            layerLevel = viewModel.getLayerLevel(task.id)
-            layersBelow = viewModel.getDescendantLayersCount(task.id)
-        }
+    var layersBelow by remember { mutableIntStateOf(0) }
+    LaunchedEffect(task.id, subtasks) {
+        layersBelow = viewModel.getDescendantLayersCount(task.id)
     }
 
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     val dateFormat = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
+    val scope = rememberCoroutineScope()
 
     if (showDeleteConfirm) {
         DeleteConfirmationDialog(
@@ -1690,7 +3041,9 @@ fun TaskNodeView(
                         HighlightedText(
                             text = task.title.ifBlank { "Untitled Task" },
                             query = searchQuery,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                            ),
                             fontWeight = FontWeight.SemiBold
                         )
 
@@ -1762,6 +3115,10 @@ fun TaskNodeView(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text("Created: ${dateFormat.format(Date(task.createdTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    if (task.isCompleted) {
+                        val doneTime = task.completedTimestamp ?: task.lastModifiedTimestamp
+                        Text("Completed: ${dateFormat.format(Date(doneTime))}", style = MaterialTheme.typography.labelSmall, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    }
                     Text("Modified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                 }
 
@@ -1823,11 +3180,11 @@ fun TaskNodeView(
                         IconButton(modifier = Modifier.size(30.dp), onClick = { onAddSubtask(task.id) }) {
                             Icon(Icons.Default.SubdirectoryArrowRight, contentDescription = "Add Subtask", modifier = Modifier.size(17.dp))
                         }
-                        IconButton(modifier = Modifier.size(30.dp), onClick = { onMoveToTarget(task) }) {
-                            Icon(Icons.Default.DriveFileMove, contentDescription = "Move Target", modifier = Modifier.size(17.dp))
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onMoveTask(task) }) {
+                            Icon(Icons.Default.DriveFileMove, contentDescription = "Move Task", modifier = Modifier.size(17.dp))
                         }
-                        IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyToTarget(task) }) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Target", modifier = Modifier.size(17.dp))
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyTask(task) }) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Task", modifier = Modifier.size(17.dp))
                         }
                         IconButton(
                             modifier = Modifier.size(30.dp),
@@ -1839,6 +3196,9 @@ fun TaskNodeView(
                             }
                         ) {
                             Icon(Icons.Default.AccountTree, contentDescription = "Custom Transfer", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(17.dp))
+                        }
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onSwapTaskRole(task) }) {
+                            Icon(Icons.Default.SwapVert, contentDescription = "Swap Hierarchy Role", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(17.dp))
                         }
                         IconButton(
                             modifier = Modifier.size(30.dp),
@@ -1875,9 +3235,10 @@ fun TaskNodeView(
                     viewModel = viewModel,
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
-                    onMoveToTarget = onMoveToTarget,
-                    onCopyToTarget = onCopyToTarget,
-                    onCustomHierarchyTransfer = onCustomHierarchyTransfer
+                    onMoveTask = onMoveTask,
+                    onCopyTask = onCopyTask,
+                    onCustomHierarchyTransfer = onCustomHierarchyTransfer,
+                    onSwapTaskRole = onSwapTaskRole
                 )
             }
         }
@@ -1929,7 +3290,12 @@ fun FullScreenTaskWorkspaceDialog(
                 Column {
                     TopAppBar(
                         title = {
-                            Text(if (selectedWorkspaceTab == 0) primaryTask.title.ifBlank { "Task Workspace" } else "Referenced: ${referencedTask?.title ?: ""}")
+                            Text(
+                                if (selectedWorkspaceTab == 0) primaryTask.title.ifBlank { "Task Workspace" }
+                                else "Referenced: ${referencedTask?.title ?: ""}",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         },
                         navigationIcon = {
                             IconButton(onClick = onDismiss) {
@@ -1986,7 +3352,7 @@ fun FullScreenTaskWorkspaceDialog(
                         SingleTaskEditorView(
                             task = referencedTask!!,
                             viewModel = viewModel,
-                            onDismiss = onDismiss,
+                            onDismiss = { selectedWorkspaceTab = 0 },
                             onMoveTask = onMoveTask,
                             onCopyTask = onCopyTask,
                             onCustomHierarchyTransfer = onCustomHierarchyTransfer,
@@ -2019,7 +3385,6 @@ fun SingleTaskEditorView(
     val audioHelper = remember { AudioRecorderHelper(context) }
     val dateFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
     val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
-    val fullDateTimeFormat = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
     val scope = rememberCoroutineScope()
 
     var title by remember(task.id) { mutableStateOf(task.title) }
@@ -2066,7 +3431,10 @@ fun SingleTaskEditorView(
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
-        if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true || perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
+        val fineGranted = perms[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarseGranted = perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+        if (fineGranted || coarseGranted) {
             isResolvingLocation = true
             LocationAndContactHelper.requestFreshLocation(
                 context = context,
@@ -2074,10 +3442,37 @@ fun SingleTaskEditorView(
                     latitude = loc.latitude
                     longitude = loc.longitude
 
-                    LocationAndContactHelper.fetchPlaceName(context, loc.latitude, loc.longitude) { resolvedPlaceName ->
-                        locationName = resolvedPlaceName
+                    if (locationName.isBlank()) {
+                        locationName = "Resolving place name..."
+                    }
+
+                    scope.launch {
+                        val place = LocationAndContactHelper.resolvePlaceName(context, loc.latitude, loc.longitude)
+                        locationName = place
                         isResolvingLocation = false
-                        Toast.makeText(context, "Location pinned: $resolvedPlaceName", Toast.LENGTH_SHORT).show()
+
+                        viewModel.saveTask(
+                            task = task,
+                            title = title,
+                            notes = notes,
+                            tags = tagsText,
+                            priority = priority,
+                            createdTimestampMs = createdMs,
+                            reminderEpochMs = reminderMs,
+                            dueEpochMs = dueMs,
+                            repeatRule = repeatRule,
+                            repeatIntervalDays = repeatDaysText.toIntOrNull() ?: 0,
+                            repeatIntervalHours = repeatHoursText.toIntOrNull() ?: 0,
+                            repeatIntervalMinutes = repeatMinutesText.toIntOrNull() ?: 0,
+                            repeatStartDate = repeatStartDate,
+                            repeatStartTimeMs = repeatStartTimeMs,
+                            repeatEndTimeMs = repeatEndTimeMs,
+                            linkedTaskIds = task.linkedTaskIds,
+                            locationName = place,
+                            latitude = loc.latitude,
+                            longitude = loc.longitude
+                        )
+                        Toast.makeText(context, "Location saved: $place", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onError = { err ->
@@ -2130,7 +3525,7 @@ fun SingleTaskEditorView(
             message = "Are you sure you want to delete the ${selectedAttachmentIds.size} selected attachments permanently?",
             onConfirm = {
                 val toDelete = liveAttachments.filter { it.id in selectedAttachmentIds }
-                toDelete.forEach { viewModel.deleteAttachment(it) }
+                viewModel.deleteAttachmentsBatch(toDelete)
                 selectedAttachmentIds = emptySet()
                 isAttachmentSelectionMode = false
                 showBatchDeleteConfirm = false
@@ -2368,6 +3763,109 @@ fun SingleTaskEditorView(
                     repeatIntervalHours = repeatHoursText.toIntOrNull() ?: 0,
                     repeatIntervalMinutes = repeatMinutesText.toIntOrNull() ?: 0
                 )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (locationName.isNotBlank() || latitude != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.clickable {
+                                if (latitude != null && longitude != null) {
+                                    LocationAndContactHelper.openInMap(context, latitude!!, longitude!!, locationName)
+                                }
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(13.dp))
+                                Spacer(Modifier.width(3.dp))
+                                Text(
+                                    text = locationName.ifBlank { "GPS: ${String.format(Locale.US, "%.3f, %.3f", latitude, longitude)}" },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+
+                    if (tagsText.isNotBlank()) {
+                        tagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { tag ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "#$tag",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (liveChecklist.isNotEmpty()) {
+                        val doneCount = liveChecklist.count { it.isDone }
+                        Surface(
+                            color = if (doneCount == liveChecklist.size) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.outline)
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = "Checklist: $doneCount/${liveChecklist.size}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    if (liveAttachments.isNotEmpty()) {
+                        val filesCount = liveAttachments.count { it.type == AttachmentType.FILE || it.type == AttachmentType.IMAGE }
+                        val audiosCount = liveAttachments.count { it.type == AttachmentType.AUDIO }
+                        val videosCount = liveAttachments.count { it.type == AttachmentType.VIDEO }
+                        val contactsCount = liveAttachments.count { it.type == AttachmentType.CONTACT }
+
+                        Surface(
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
+                                Spacer(Modifier.width(3.dp))
+                                val summaryParts = mutableListOf<String>()
+                                if (filesCount > 0) summaryParts.add("$filesCount files")
+                                if (audiosCount > 0) summaryParts.add("$audiosCount audio")
+                                if (videosCount > 0) summaryParts.add("$videosCount video")
+                                if (contactsCount > 0) summaryParts.add("$contactsCount contacts")
+                                Text(
+                                    text = summaryParts.joinToString(", "),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -3356,322 +4854,6 @@ fun SingleTaskEditorView(
                     }
 
                     Spacer(Modifier.height(32.dp))
-                }
-            }
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------------------
-// DESTINATION PICKER DIALOG (MOVE / COPY)
-// -----------------------------------------------------------------------------------------
-@Composable
-fun TaskDestinationDialog(
-    title: String,
-    currentTaskId: Long,
-    viewModel: TaskViewModel,
-    onDismiss: () -> Unit,
-    onSelectTarget: (Long?) -> Unit
-) {
-    var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(currentTaskId) {
-        scope.launch {
-            potentialParents = viewModel.getAllPotentialParents(currentTaskId)
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 350.dp)) {
-                item {
-                    ListItem(
-                        headlineContent = { Text("★ Root Level (Main Task)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary) },
-                        modifier = Modifier.clickable { onSelectTarget(null) }
-                    )
-                    HorizontalDivider()
-                }
-                items(potentialParents, key = { it.id }) { parentCandidate ->
-                    ListItem(
-                        headlineContent = { Text(parentCandidate.title.ifBlank { "Task #${parentCandidate.id}" }) },
-                        supportingContent = { Text(if (parentCandidate.parentId == null) "Main Task" else "Subtask", style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.clickable { onSelectTarget(parentCandidate.id) }
-                    )
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
-
-// -----------------------------------------------------------------------------------------
-// CUSTOM HIERARCHY TRANSFER DIALOG & DROPDOWN COMPONENT
-// -----------------------------------------------------------------------------------------
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CustomHierarchyTransferDialog(
-    tasksToTransfer: List<TaskItem>,
-    isCopy: Boolean,
-    viewModel: TaskViewModel,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
-    var numberOfCopies by remember { mutableIntStateOf(1) }
-    var taskDepthsMap by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(allTasks) {
-        scope.launch {
-            val depths = mutableMapOf<Long, Int>()
-            for (t in allTasks) {
-                depths[t.id] = viewModel.getTaskDepth(t.id)
-            }
-            taskDepthsMap = depths
-        }
-    }
-
-    val transferredIds = remember(tasksToTransfer) { tasksToTransfer.map { it.id }.toSet() }
-
-    val availableMainTasks = remember(allTasks, taskDepthsMap, transferredIds) {
-        allTasks.filter { it.id !in transferredIds && (taskDepthsMap[it.id] ?: 0) == 0 }
-    }
-    val availableSubTasks = remember(allTasks, taskDepthsMap, transferredIds) {
-        allTasks.filter { it.id !in transferredIds && (taskDepthsMap[it.id] ?: 0) == 1 }
-    }
-
-    val transferPlans = remember(tasksToTransfer) {
-        mutableStateListOf<TaskViewModel.TaskHierarchyPlan>().apply {
-            addAll(tasksToTransfer.map { TaskViewModel.TaskHierarchyPlan(task = it) })
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (isCopy) Icons.Default.ContentCopy else Icons.Default.DriveFileMove,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = if (isCopy) "Custom Hierarchy Copy (${tasksToTransfer.size})" else "Custom Hierarchy Move (${tasksToTransfer.size})",
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    AssistChip(
-                        onClick = {
-                            transferPlans.forEachIndexed { i, plan ->
-                                transferPlans[i] = plan.copy(targetRole = TaskViewModel.CustomTargetRole.MAIN_TASK, chosenParentId = null)
-                            }
-                        },
-                        label = { Text("All as Main") }
-                    )
-                    AssistChip(
-                        onClick = {
-                            val defaultMain = availableMainTasks.firstOrNull()?.id
-                            transferPlans.forEachIndexed { i, plan ->
-                                transferPlans[i] = plan.copy(targetRole = TaskViewModel.CustomTargetRole.SUB_TASK, chosenParentId = defaultMain)
-                            }
-                        },
-                        label = { Text("All as Subtasks") }
-                    )
-                }
-
-                HorizontalDivider()
-
-                transferPlans.forEachIndexed { index, plan ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                    ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "${index + 1}. ${plan.task.title.ifBlank { "Task #${plan.task.id}" }}",
-                                fontWeight = FontWeight.Bold,
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                TaskViewModel.CustomTargetRole.values().forEach { role ->
-                                    if (role == TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED && tasksToTransfer.size <= 1) return@forEach
-
-                                    FilterChip(
-                                        selected = plan.targetRole == role,
-                                        onClick = {
-                                            val defaultParent = when (role) {
-                                                TaskViewModel.CustomTargetRole.MAIN_TASK -> null
-                                                TaskViewModel.CustomTargetRole.SUB_TASK -> availableMainTasks.firstOrNull()?.id
-                                                TaskViewModel.CustomTargetRole.SUB_SUB_TASK -> availableSubTasks.firstOrNull()?.id
-                                                TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED -> tasksToTransfer.firstOrNull { it.id != plan.task.id }?.id
-                                            }
-                                            transferPlans[index] = plan.copy(
-                                                targetRole = role,
-                                                chosenParentId = if (role != TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED) defaultParent else null,
-                                                chosenTransferredParentTaskId = if (role == TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED) defaultParent else null
-                                            )
-                                        },
-                                        label = { Text(role.title) }
-                                    )
-                                }
-                            }
-
-                            when (plan.targetRole) {
-                                TaskViewModel.CustomTargetRole.MAIN_TASK -> {
-                                    Surface(
-                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
-                                        shape = RoundedCornerShape(6.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = "✓ Root Level Main Task (No Parent)",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(8.dp)
-                                        )
-                                    }
-                                }
-                                TaskViewModel.CustomTargetRole.SUB_TASK -> {
-                                    ParentDropdownPicker(
-                                        label = "Parent Main Task:",
-                                        candidates = availableMainTasks,
-                                        selectedId = plan.chosenParentId,
-                                        onSelect = { transferPlans[index] = plan.copy(chosenParentId = it) }
-                                    )
-                                }
-                                TaskViewModel.CustomTargetRole.SUB_SUB_TASK -> {
-                                    ParentDropdownPicker(
-                                        label = "Parent Subtask:",
-                                        candidates = availableSubTasks,
-                                        selectedId = plan.chosenParentId,
-                                        onSelect = { transferPlans[index] = plan.copy(chosenParentId = it) }
-                                    )
-                                }
-                                TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED -> {
-                                    val otherTransferred = tasksToTransfer.filter { it.id != plan.task.id }
-                                    ParentDropdownPicker(
-                                        label = "Nest under transferred task:",
-                                        candidates = otherTransferred,
-                                        selectedId = plan.chosenTransferredParentTaskId,
-                                        onSelect = { transferPlans[index] = plan.copy(chosenTransferredParentTaskId = it) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (isCopy) {
-                    HorizontalDivider()
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Number of copies:", fontWeight = FontWeight.SemiBold)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            FilledTonalIconButton(
-                                onClick = { if (numberOfCopies > 1) numberOfCopies-- },
-                                enabled = numberOfCopies > 1
-                            ) { Icon(Icons.Default.Remove, contentDescription = null) }
-                            Text("$numberOfCopies", fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
-                            FilledTonalIconButton(onClick = { numberOfCopies++ }) {
-                                Icon(Icons.Default.Add, contentDescription = null)
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    viewModel.executeCustomHierarchyTransfer(
-                        plans = transferPlans,
-                        isCopy = isCopy,
-                        numberOfCopies = numberOfCopies,
-                        onComplete = {
-                            Toast.makeText(context, if (isCopy) "Tasks copied successfully ✓" else "Tasks moved successfully ✓", Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        }
-                    )
-                }
-            ) {
-                Text(if (isCopy) "Confirm Copy (${numberOfCopies}x)" else "Confirm Move")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@Composable
-fun ParentDropdownPicker(
-    label: String,
-    candidates: List<TaskItem>,
-    selectedId: Long?,
-    onSelect: (Long) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedTask = candidates.find { it.id == selectedId }
-
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-        Box {
-            OutlinedButton(
-                onClick = { expanded = true },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    text = selectedTask?.title?.ifBlank { "Task #${selectedTask.id}" } ?: "Select parent task...",
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-            }
-
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.heightIn(max = 240.dp)
-            ) {
-                if (candidates.isEmpty()) {
-                    DropdownMenuItem(text = { Text("No matching tasks available") }, onClick = { expanded = false })
-                } else {
-                    candidates.forEach { candidate ->
-                        DropdownMenuItem(
-                            text = { Text(candidate.title.ifBlank { "Task #${candidate.id}" }) },
-                            onClick = {
-                                onSelect(candidate.id)
-                                expanded = false
-                            }
-                        )
-                    }
                 }
             }
         }
