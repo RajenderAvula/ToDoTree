@@ -238,14 +238,46 @@ fun MainAppScaffold(
             }
         }
 
-        taskForAdvancedTransfer?.let { (task, isCopy) ->
+       /* taskForAdvancedTransfer?.let { (task, isCopy) ->
             AdvancedTaskTransferDialog(
                 task = task,
                 isCopy = isCopy,
                 viewModel = viewModel,
                 onDismiss = { taskForAdvancedTransfer = null }
             )
-        }
+        }*/
+        // 1. In MainActivity.kt, the dialog states:
+var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
+var customHierarchyTransferBatch by remember { mutableStateOf<List<TaskItem>?>(null) }
+var isCustomHierarchyTransferCopy by remember { mutableStateOf(false) }
+var taskForRoleSwap by remember { mutableStateOf<TaskItem?>(null) }
+
+// 2. In MainAppScaffold bottom:
+taskForAdvancedTransfer?.let { (task, isCopy) ->
+    AdvancedTaskTransferDialog(
+        task = task,
+        isCopy = isCopy,
+        viewModel = viewModel,
+        onDismiss = { taskForAdvancedTransfer = null }
+    )
+}
+
+customHierarchyTransferBatch?.let { batch ->
+    CustomHierarchyTransferDialog(
+        tasksToTransfer = batch,
+        isCopy = isCustomHierarchyTransferCopy,
+        viewModel = viewModel,
+        onDismiss = { customHierarchyTransferBatch = null }
+    )
+}
+
+taskForRoleSwap?.let { taskA ->
+    SwapTaskRoleDialog(
+        taskA = taskA,
+        viewModel = viewModel,
+        onDismiss = { taskForRoleSwap = null }
+    )
+}
     }
 }
 
