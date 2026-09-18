@@ -1,6 +1,5 @@
 package com.example.infinitetodo
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.location.Address
@@ -11,12 +10,9 @@ import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.widget.Toast
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -24,6 +20,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import kotlin.coroutines.resume
 
 object LocationAndContactHelper {
 
@@ -116,82 +113,81 @@ object LocationAndContactHelper {
     }
 
     /**
-     * Resolves human-readable place name via Coroutine (IO dispatcher)
+     * Suspend function called by MainActivity
      */
-    suspend fun resolvePlaceName(
-        context: Context,
-        latitude: Double,
-        longitude: Double
-    ): String = withContext(Dispatchers.IO) {
-        var resolvedName: String? = null
+    suspend fun resolvePlaceName(context: Context, latitude: Double, longitude: Double): String = withContext(Dispatchers.IO) {
+        val geocoder = Geocoder(context, Locale.getDefault())
+        val defaultCoord = "Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})"
 
-        // 1. Try Android Native Geocoder
-        try {
-            if (Geocoder.isPresent()) {
-                val geocoder = Geocoder(context, Locale.getDefault())
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    var addressList: List<Address>? = null
-                    val lock = Object()
-                    geocoder.getFromLocation(latitude, longitude, 1) { addresses ->
-                        synchronized(lock) {
-                            addressList = addresses
-                            lock.notifyAll()
-                        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val geocoded = suspendCancellableCoroutine<String?> { cont ->
+                geocoder.getFromLocation(latitude, longitude, 1, object : Geocoder.GeocodeListener {
+                    override fun onGeocode(addresses: MutableList<Address>) {
+                        cont.resume(formatAddress(addresses.firstOrNull()))
                     }
-                    synchronized(lock) {
-                        lock.wait(2500)
+                    override fun onError(errorMessage: String?) {
+                        cont.resume(null)
                     }
-                    resolvedName = formatAddress(addressList?.firstOrNull())
-                } else {
-                    @Suppress("DEPRECATION")
-                    val list = geocoder.getFromLocation(latitude, longitude, 1)
-                    resolvedName = formatAddress(list?.firstOrNull())
-                }
+                })
             }
-        } catch (_: Exception) { }
-
-        if (!resolvedName.isNullOrBlank()) {
-            return@withContext resolvedName
+            geocoded ?: fetchFromWebFallbackSync(latitude, longitude) ?: defaultCoord
+        } else {
+            try {
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocation(latitude, longitude, 1)
+                formatAddress(addresses?.firstOrNull()) ?: fetchFromWebFallbackSync(latitude, longitude) ?: defaultCoord
+            } catch (_: Exception) {
+                fetchFromWebFallbackSync(latitude, longitude) ?: defaultCoord
+            }
         }
+    }
 
-        // 2. OpenStreetMap Nominatim Web Fallback
-        try {
-            val urlString = "https://nominatim.openstreetmap.org/reverse?format=json&lat=$latitude&lon=$longitude&zoom=18&addressdetails=1"
-            val url = URL(urlString)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                setRequestProperty("User-Agent", "ToDoTreeApp/1.0 (Android; Location)")
-                connectTimeout = 4000
-                readTimeout = 4000
-            }
+    /**
+     * Callback alias in case any legacy code calls fetchPlaceName
+     */
+    fun fetchPlaceName(context: Context, latitude: Double, longitude: Double, onResolved: (String) -> Unit) {
+        kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+            val name = resolvePlaceName(context, latitude, longitude)
+            onResolved(name)
+        }
+    }
+
+    private fun fetchFromWebFallbackSync(latitude: Double, longitude: Double): String? {
+        return try {
+            val url = URL("https://nominatim.openstreetmap.org/reverse?format=json&lat=$latitude&lon=$longitude&zoom=18&addressdetails=1")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.setRequestProperty("User-Agent", "ToDoTreeApp/1.0 (Android)")
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
 
             if (conn.responseCode == 200) {
-                val response = conn.inputStream.bufferedReader().use(BufferedReader::readText)
-                val json = JSONObject(response)
+                val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                val sb = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) sb.append(line)
+                reader.close()
+
+                val json = JSONObject(sb.toString())
                 val addressObj = json.optJSONObject("address")
                 if (addressObj != null) {
                     val road = addressObj.optString("road", "")
                     val suburb = addressObj.optString("suburb", "")
                     val neighbourhood = addressObj.optString("neighbourhood", "")
-                    val city = addressObj.optString("city", addressObj.optString("town", addressObj.optString("county", "")))
+                    val city = addressObj.optString("city", addressObj.optString("town", ""))
 
                     val parts = mutableListOf<String>()
-                    if (neighbourhood.isNotBlank()) parts.add(neighbourhood)
-                    else if (suburb.isNotBlank()) parts.add(suburb)
+                    if (neighbourhood.isNotBlank()) parts.add(neighbourhood) else if (suburb.isNotBlank()) parts.add(suburb)
                     if (road.isNotBlank() && !parts.contains(road)) parts.add(road)
                     if (city.isNotBlank() && !parts.contains(city)) parts.add(city)
-
-                    if (parts.isNotEmpty()) {
-                        resolvedName = parts.joinToString(", ")
-                    }
+                    if (parts.isNotEmpty()) parts.joinToString(", ") else json.optString("display_name", null)
+                } else {
+                    json.optString("display_name", null)
                 }
-                if (resolvedName.isNullOrBlank()) {
-                    resolvedName = json.optString("name", json.optString("display_name", null))
-                }
-            }
-        } catch (_: Exception) { }
-
-        return@withContext resolvedName ?: "Location (${String.format(Locale.US, "%.4f", latitude)}, ${String.format(Locale.US, "%.4f", longitude)})"
+            } else null
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun formatAddress(address: Address?): String? {
@@ -202,22 +198,13 @@ object LocationAndContactHelper {
         val locality = address.locality
         val adminArea = address.adminArea
 
-        if (!feature.isNullOrBlank() && feature != subLocality && feature != locality) {
-            parts.add(feature)
-        }
-        if (!subLocality.isNullOrBlank()) {
-            parts.add(subLocality)
-        }
-        if (!locality.isNullOrBlank() && locality != subLocality) {
-            parts.add(locality)
-        } else if (!adminArea.isNullOrBlank()) {
-            parts.add(adminArea)
-        }
+        if (!feature.isNullOrBlank() && feature != subLocality && feature != locality) parts.add(feature)
+        if (!subLocality.isNullOrBlank()) parts.add(subLocality)
+        if (!locality.isNullOrBlank() && locality != subLocality) parts.add(locality) else if (!adminArea.isNullOrBlank()) parts.add(adminArea)
 
         return if (parts.isNotEmpty()) parts.joinToString(", ") else address.getAddressLine(0)
     }
 
-    @SuppressLint("MissingPermission")
     fun requestFreshLocation(
         context: Context,
         onLocationFound: (Location) -> Unit,
@@ -233,63 +220,40 @@ object LocationAndContactHelper {
         val hasNetwork = locManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
 
         if (!hasGps && !hasNetwork) {
-            onError("Please enable Location (GPS) in Settings")
+            onError("Please turn on Device Location (GPS)")
             return
         }
 
         try {
-            // First check if a reasonably fresh location already exists (< 2 minutes)
-            val lastGps = if (hasGps) locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) else null
-            val lastNetwork = if (hasNetwork) locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) else null
+            val cached = (if (hasGps) locManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) else null)
+                ?: (if (hasNetwork) locManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) else null)
 
-            val bestLast = when {
-                lastGps != null && lastNetwork != null -> if (lastGps.time > lastNetwork.time) lastGps else lastNetwork
-                lastGps != null -> lastGps
-                else -> lastNetwork
-            }
-
-            if (bestLast != null && (System.currentTimeMillis() - bestLast.time) < 120_000L) {
-                onLocationFound(bestLast)
+            if (cached != null && (System.currentTimeMillis() - cached.time) < 60000L) {
+                onLocationFound(cached)
                 return
             }
 
-            // Otherwise, request active single update from available provider
-            val provider = if (hasNetwork) LocationManager.NETWORK_PROVIDER else LocationManager.GPS_PROVIDER
-            var delivered = false
-
             val listener = object : LocationListener {
                 override fun onLocationChanged(location: Location) {
-                    if (!delivered) {
-                        delivered = true
-                        onLocationFound(location)
-                        locManager.removeUpdates(this)
-                    }
+                    onLocationFound(location)
+                    locManager.removeUpdates(this)
                 }
                 @Deprecated("Deprecated in Java")
-                override fun onStatusChanged(p0: String?, p1: Int, p2: Bundle?) {}
-                override fun onProviderEnabled(p0: String) {}
-                override fun onProviderDisabled(p0: String) {}
+                override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
             }
 
-            locManager.requestSingleUpdate(provider, listener, Looper.getMainLooper())
+            val provider = if (hasGps) LocationManager.GPS_PROVIDER else LocationManager.NETWORK_PROVIDER
+            locManager.requestSingleUpdate(provider, listener, null)
 
-            // Fallback timeout: if active fix takes too long, deliver the best last-known location
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (!delivered) {
-                    locManager.removeUpdates(listener)
-                    if (bestLast != null) {
-                        delivered = true
-                        onLocationFound(bestLast)
-                    } else {
-                        onError("Location acquisition timed out. Please try outdoors.")
-                    }
-                }
-            }, 6000)
-
+            if (cached != null) {
+                onLocationFound(cached)
+            }
         } catch (_: SecurityException) {
             onError("Location permission required")
-        } catch (e: Exception) {
-            onError("GPS error: ${e.message}")
+        } catch (_: Exception) {
+            onError("Unable to acquire GPS fix")
         }
     }
 }
