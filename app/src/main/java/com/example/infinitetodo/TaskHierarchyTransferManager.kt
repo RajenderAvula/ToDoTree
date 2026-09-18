@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,11 +44,6 @@ enum class CustomTargetRole(val title: String, val description: String) {
     SUB_SUB_TASK("Sub-Subtask", "Child of a Subtask"),
     CHILD_OF_ANOTHER_TRANSFERRED("Under Transferred Task", "Child of another task in this batch")
 }
-
-data class DescendantNode(
-    val task: TaskItem,
-    val depthLevel: Int
-)
 
 data class TaskHierarchyPlan(
     val task: TaskItem,
@@ -96,8 +92,8 @@ object TaskHierarchyTransferEngine {
     }
 
     /**
-     * Finds the closest ancestor of [taskId] that is included in [selectedIds].
-     * If all intermediate ancestors are unselected, it points directly to [rootTaskId].
+     * Resolves the closest ancestor of [taskId] that was selected by the user.
+     * If all intermediate levels were bypassed, it defaults directly to [rootTaskId].
      */
     private suspend fun resolveClosestSelectedAncestor(
         dao: TaskDao,
@@ -116,10 +112,6 @@ object TaskHierarchyTransferEngine {
         return rootTaskId
     }
 
-    /**
-     * Copies a task and selectively includes descendants (skipping any intermediate level).
-     * Bypassed intermediate tasks are omitted, and deeper descendants attach directly to the nearest selected ancestor.
-     */
     suspend fun executeSelectiveTreeCopy(
         dao: TaskDao,
         rootTask: TaskItem,
@@ -185,10 +177,6 @@ object TaskHierarchyTransferEngine {
         }
     }
 
-    /**
-     * Moves a task and selectively includes descendants.
-     * Intermediate unselected tasks are bypassed: selected sub-sub-subtasks are re-parented directly to the root task.
-     */
     suspend fun executeSelectiveTreeMove(
         dao: TaskDao,
         rootTask: TaskItem,
@@ -319,7 +307,7 @@ object TaskHierarchyTransferEngine {
 }
 
 // -----------------------------------------------------------------------------------------
-// UI DIALOG 1: ADVANCED TRANSFER (SUBTASK FILTERING & INTERMEDIATE SKIPPING)
+// UI DIALOG 1: ADVANCED TRANSFER DIALOG
 // -----------------------------------------------------------------------------------------
 
 @Composable
@@ -449,7 +437,7 @@ fun AdvancedTaskTransferDialog(
                             }
                         }
                         Text(
-                            text = "ℹ Tip: Intermediate unselected tasks will be skipped. Deeper selected tasks will attach directly to this task.",
+                            text = "ℹ Intermediate unselected tasks will be skipped. Deeper selected tasks will attach directly to this task.",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -623,7 +611,7 @@ fun AdvancedTaskTransferDialog(
 }
 
 // -----------------------------------------------------------------------------------------
-// UI DIALOG 2: CUSTOM MULTI-TASK HIERARCHY TRANSFER (EACH TASK ROUTED INDEPENDENTLY)
+// UI DIALOG 2: CUSTOM MULTI-TASK HIERARCHY TRANSFER
 // -----------------------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
