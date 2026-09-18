@@ -80,9 +80,40 @@ enum class AppNavTab(val title: String, val icon: ImageVector) {
     SETTINGS("Settings", Icons.Default.Settings)
 }
 
+
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // 1. Create High-Priority Notification Channel for Android 8+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = android.app.NotificationChannel(
+                NotificationActionReceiver.CHANNEL_ID,
+                NotificationActionReceiver.CHANNEL_NAME,
+                android.app.NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Task reminders, due date alarms, and recurrence alerts"
+                enableLights(true)
+                enableVibration(true)
+            }
+            val manager = getSystemService(android.app.NotificationManager::class.java)
+            manager?.createNotificationChannel(channel)
+        }
+
+        // 2. Request Exact Alarm permission on Android 12+ if revoked
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager
+            if (alarmManager != null && !alarmManager.canScheduleExactAlarms()) {
+                try {
+                    val intent = Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (_: Exception) { }
+            }
+        }
+
         setContent {
             val context = LocalContext.current
             var currentTheme by remember { mutableStateOf(ThemePreferences.getTheme(context)) }
