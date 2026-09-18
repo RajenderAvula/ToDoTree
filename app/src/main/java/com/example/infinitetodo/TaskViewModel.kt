@@ -803,4 +803,137 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
 
         workManager.enqueue(request)
     }
+    // -----------------------------------------------------------------------------------------
+    // CUSTOM MULTI-TASK HIERARCHY TRANSFER ENGINE
+    // -----------------------------------------------------------------------------------------
+
+    enum class CustomTargetRole(val title: String, val description: String) {
+        MAIN_TASK("Main Task", "Root level (Layer 1, no parent)"),
+        SUB_TASK("Subtask", "Direct child of a Main Task (Layer 2)"),
+        SUB_SUB_TASK("Sub-Subtask", "Child of a Subtask (Layer 3+)"),
+        CHILD_OF_ANOTHER_TRANSFERRED("Under Transferred Task", "Child of another task in this batch")
+    }
+
+    data class TaskHierarchyPlan(
+        val task: TaskItem,
+        var targetRole: CustomTargetRole = CustomTargetRole.MAIN_TASK,
+        var chosenParentId: Long? = null,
+        var chosenTransferredParentTaskId: Long? = null
+    )
+
+    suspend fun getTaskDepth(taskId: Long): Int = withContext(Dispatchers.IO) {
+        var depth = 0
+        var current = dao.getTaskById(taskId)
+        while (current?.parentId != null) {
+            depth++
+            current = dao.getTaskById(current.parentId!!)
+        }
+        depth
+    }
+
+    private suspend fun copyTaskAssets(fromTaskId: Long, toTaskId: Long) {
+        val checklists = dao.getChecklistSnapshot(fromTaskId)
+        for (chk in checklists) {
+            dao.insertChecklistItem(chk.copy(id = 0L, taskId = toTaskId))
+        }
+        val attachments = dao.getAttachmentsSnapshot(fromTaskId)
+        for (att in attachments) {
+            dao.insertAttachment(att.copy(id = 0L, taskId = toTaskId))
+        }
+    }
+
+    fun executeCustomHierarchyTransfer(
+        plans: List<TaskHierarchyPlan>,
+        isCopy: Boolean,
+        numberOfCopies: Int = 1,
+        onComplete: () -> Unit = {}
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+
+            if (isCopy) {
+                repeat(numberOfCopies) {
+                    val idMap = mutableMapOf<Long, Long>()
+
+                    val independentPlans = plans.filter { it.targetRole != CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED }
+                    val dependentPlans = plans.filter { it.targetRole == CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED }
+
+                    for (plan in independentPlans) {
+                        val targetParentId = when (plan.targetRole) {
+                            CustomTargetRole.MAIN_TASK -> null
+                            CustomTargetRole.SUB_TASK, CustomTargetRole.SUB_SUB_TASK -> plan.chosenParentId
+                            else -> null
+                        }
+                        val siblings = dao.getSubtasksSnapshot(targetParentId)
+                        val copy = plan.task.copy(
+                            id = 0L,
+                            parentId = targetParentId,
+                            title = if (targetParentId == plan.task.parentId) "${plan.task.title} (Copy)" else plan.task.title,
+                            orderIndex = siblings.size,
+                            calendarEventId = null,
+                            createdTimestamp = now,
+                            lastModifiedTimestamp = now
+                        )
+                        val newId = dao.insertTask(copy)
+                        idMap[plan.task.id] = newId
+                        syncTaskToCalendar(copy.copy(id = newId))
+                        copyTaskAssets(plan.task.id, newId)
+                    }
+
+                    for (plan in dependentPlans) {
+                        val resolvedParentId = plan.chosenTransferredParentTaskId?.let { idMap[it] }
+                        val siblings = dao.getSubtasksSnapshot(resolvedParentId)
+                        val copy = plan.task.copy(
+                            id = 0L,
+                            parentId = resolvedParentId,
+                            title = plan.task.title,
+                            orderIndex = siblings.size,
+                            calendarEventId = null,
+                            createdTimestamp = now,
+                            lastModifiedTimestamp = now
+                        )
+                        val newId = dao.insertTask(copy)
+                        idMap[plan.task.id] = newId
+                        syncTaskToCalendar(copy.copy(id = newId))
+                        copyTaskAssets(plan.task.id, newId)
+                    }
+                }
+            } else {
+                val independentPlans = plans.filter { it.targetRole != CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED }
+                val dependentPlans = plans.filter { it.targetRole == CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED }
+
+                for (plan in independentPlans) {
+                    val targetParentId = when (plan.targetRole) {
+                        CustomTargetRole.MAIN_TASK -> null
+                        CustomTargetRole.SUB_TASK, CustomTargetRole.SUB_SUB_TASK -> plan.chosenParentId
+                        else -> null
+                    }
+                    val siblings = dao.getSubtasksSnapshot(targetParentId)
+                    val updated = plan.task.copy(
+                        parentId = targetParentId,
+                        orderIndex = siblings.size,
+                        lastModifiedTimestamp = now
+                    )
+                    dao.updateTask(updated)
+                    syncTaskToCalendar(updated)
+                }
+
+                for (plan in dependentPlans) {
+                    val targetParentId = plan.chosenTransferredParentTaskId
+                    val siblings = dao.getSubtasksSnapshot(targetParentId)
+                    val updated = plan.task.copy(
+                        parentId = targetParentId,
+                        orderIndex = siblings.size,
+                        lastModifiedTimestamp = now
+                    )
+                    dao.updateTask(updated)
+                    syncTaskToCalendar(updated)
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
+        }
+    }
 }
