@@ -403,9 +403,9 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
             syncTaskToCalendar(updated)
 
             // Cancel existing alarms and re-arm via TaskSchedulerHelper
-            TaskSchedulerHelper.cancelAllAlarmsForTask(getApplication(), task.id)
+            TaskSchedulerHelper.cancelAllAlerts(getApplication(), task.id)
             if (!updated.isCompleted) {
-                TaskSchedulerHelper.scheduleTaskAlarms(getApplication(), updated)
+                TaskSchedulerHelper.scheduleAllAlerts(getApplication(), updated)
             }
 
         }
@@ -424,9 +424,9 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
 
             // Cancel alarms if done, or reschedule if reopened
             if (newCompleted) {
-                TaskSchedulerHelper.cancelAllAlarmsForTask(getApplication(), task.id)
+                TaskSchedulerHelper.cancelAllAlerts(getApplication(), task.id)
             } else {
-                TaskSchedulerHelper.scheduleTaskAlarms(getApplication(), updated)
+                TaskSchedulerHelper.scheduleAllAlerts(getApplication(), updated)
             }
         }
     }
@@ -437,7 +437,7 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
             val allTasksToDelete = listOf(task) + allDescendants
 
             for (t in allTasksToDelete) {
-                TaskSchedulerHelper.cancelAllAlarmsForTask(getApplication(), t.id)
+                TaskSchedulerHelper.cancelAllAlerts(getApplication(), t.id)
                 t.calendarEventId?.let { calEventId ->
                     CalendarHelper.deleteEvent(getApplication(), calEventId)
                 }
@@ -461,7 +461,7 @@ suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
                 val descendants = getAllDescendants(task.id)
                 val allToDelete = listOf(task) + descendants
                 for (t in allToDelete) {
-                    TaskSchedulerHelper.cancelAllAlarmsForTask(getApplication(), t.id)
+                    TaskSchedulerHelper.cancelAllAlerts(getApplication(), t.id)
                     t.calendarEventId?.let { calId ->
                         CalendarHelper.deleteEvent(getApplication(), calId)
                     }
