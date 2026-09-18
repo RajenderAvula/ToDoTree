@@ -345,7 +345,7 @@ fun TaskPaginationBar(
 // -----------------------------------------------------------------------------------------
 // ADVANCED TRANSFER DIALOG
 // -----------------------------------------------------------------------------------------
-@Composable
+/*@Composable
 fun AdvancedTaskTransferDialog(
     task: TaskItem,
     isCopy: Boolean,
@@ -589,7 +589,7 @@ fun AdvancedTaskTransferDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
-}
+}*/
 
 // -----------------------------------------------------------------------------------------
 // CONTACT ACTION STRIP
