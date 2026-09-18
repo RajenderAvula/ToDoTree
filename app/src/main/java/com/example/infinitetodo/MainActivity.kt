@@ -289,7 +289,7 @@ fun MainAppScaffold(
 }
 
 // -----------------------------------------------------------------------------------------
-// PAGINATION BAR WIDGET
+// PAGINATION CONTROLLER BAR
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskPaginationBar(
@@ -678,8 +678,8 @@ fun CustomHierarchyTransferDialog(
     }
 
     val transferPlans = remember(tasksToTransfer) {
-        mutableStateListOf<TaskViewModel.TaskHierarchyPlan>().apply {
-            addAll(tasksToTransfer.map { TaskViewModel.TaskHierarchyPlan(task = it) })
+        mutableStateListOf<TaskHierarchyPlan>().apply {
+            addAll(tasksToTransfer.map { TaskHierarchyPlan(task = it) })
         }
     }
 
@@ -713,7 +713,7 @@ fun CustomHierarchyTransferDialog(
                     AssistChip(
                         onClick = {
                             transferPlans.forEachIndexed { i, plan ->
-                                transferPlans[i] = plan.copy(targetRole = TaskViewModel.CustomTargetRole.MAIN_TASK, chosenParentId = null)
+                                transferPlans[i] = plan.copy(targetRole = CustomTargetRole.MAIN_TASK, chosenParentId = null)
                             }
                         },
                         label = { Text("All as Main") }
@@ -722,7 +722,7 @@ fun CustomHierarchyTransferDialog(
                         onClick = {
                             val defaultMain = availableMainTasks.firstOrNull()?.id
                             transferPlans.forEachIndexed { i, plan ->
-                                transferPlans[i] = plan.copy(targetRole = TaskViewModel.CustomTargetRole.SUB_TASK, chosenParentId = defaultMain)
+                                transferPlans[i] = plan.copy(targetRole = CustomTargetRole.SUB_TASK, chosenParentId = defaultMain)
                             }
                         },
                         label = { Text("All as Subtasks") }
@@ -748,22 +748,22 @@ fun CustomHierarchyTransferDialog(
                                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                TaskViewModel.CustomTargetRole.values().forEach { role ->
-                                    if (role == TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED && tasksToTransfer.size <= 1) return@forEach
+                                CustomTargetRole.values().forEach { role ->
+                                    if (role == CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED && tasksToTransfer.size <= 1) return@forEach
 
                                     FilterChip(
                                         selected = plan.targetRole == role,
                                         onClick = {
                                             val defaultParent = when (role) {
-                                                TaskViewModel.CustomTargetRole.MAIN_TASK -> null
-                                                TaskViewModel.CustomTargetRole.SUB_TASK -> availableMainTasks.firstOrNull()?.id
-                                                TaskViewModel.CustomTargetRole.SUB_SUB_TASK -> availableSubTasks.firstOrNull()?.id
-                                                TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED -> tasksToTransfer.firstOrNull { it.id != plan.task.id }?.id
+                                                CustomTargetRole.MAIN_TASK -> null
+                                                CustomTargetRole.SUB_TASK -> availableMainTasks.firstOrNull()?.id
+                                                CustomTargetRole.SUB_SUB_TASK -> availableSubTasks.firstOrNull()?.id
+                                                CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED -> tasksToTransfer.firstOrNull { it.id != plan.task.id }?.id
                                             }
                                             transferPlans[index] = plan.copy(
                                                 targetRole = role,
-                                                chosenParentId = if (role != TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED) defaultParent else null,
-                                                chosenTransferredParentTaskId = if (role == TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED) defaultParent else null
+                                                chosenParentId = if (role != CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED) defaultParent else null,
+                                                chosenTransferredParentTaskId = if (role == CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED) defaultParent else null
                                             )
                                         },
                                         label = { Text(role.title) }
@@ -772,7 +772,7 @@ fun CustomHierarchyTransferDialog(
                             }
 
                             when (plan.targetRole) {
-                                TaskViewModel.CustomTargetRole.MAIN_TASK -> {
+                                CustomTargetRole.MAIN_TASK -> {
                                     Surface(
                                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
                                         shape = RoundedCornerShape(6.dp),
@@ -786,7 +786,7 @@ fun CustomHierarchyTransferDialog(
                                         )
                                     }
                                 }
-                                TaskViewModel.CustomTargetRole.SUB_TASK -> {
+                                CustomTargetRole.SUB_TASK -> {
                                     ParentDropdownPicker(
                                         label = "Parent Main Task:",
                                         candidates = availableMainTasks,
@@ -794,7 +794,7 @@ fun CustomHierarchyTransferDialog(
                                         onSelect = { transferPlans[index] = plan.copy(chosenParentId = it) }
                                     )
                                 }
-                                TaskViewModel.CustomTargetRole.SUB_SUB_TASK -> {
+                                CustomTargetRole.SUB_SUB_TASK -> {
                                     ParentDropdownPicker(
                                         label = "Parent Subtask:",
                                         candidates = availableSubTasks,
@@ -802,7 +802,7 @@ fun CustomHierarchyTransferDialog(
                                         onSelect = { transferPlans[index] = plan.copy(chosenParentId = it) }
                                     )
                                 }
-                                TaskViewModel.CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED -> {
+                                CustomTargetRole.CHILD_OF_ANOTHER_TRANSFERRED -> {
                                     val otherTransferred = tasksToTransfer.filter { it.id != plan.task.id }
                                     ParentDropdownPicker(
                                         label = "Nest under transferred task:",
@@ -1062,10 +1062,7 @@ fun SwapTaskRoleDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    )
-}
-
-// -----------------------------------------------------------------------------------------
+        // -----------------------------------------------------------------------------------------
 // CONTACT ACTION STRIP
 // -----------------------------------------------------------------------------------------
 @Composable
@@ -1556,7 +1553,7 @@ fun TaskFilterHeaderBar(
                 IconButton(
                     onClick = {
                         onSearchQueryChange("")
-                        viewModel.updateFilter(FilterCriteria())
+                        viewModel.resetFilters()
                         Toast.makeText(context, "Filters reset", Toast.LENGTH_SHORT).show()
                     }
                 ) {
@@ -1576,7 +1573,7 @@ fun TaskFilterHeaderBar(
                     TextButton(
                         onClick = {
                             onSearchQueryChange("")
-                            viewModel.updateFilter(FilterCriteria())
+                            viewModel.resetFilters()
                             Toast.makeText(context, "All filters cleared", Toast.LENGTH_SHORT).show()
                         }
                     ) {
@@ -3763,109 +3760,6 @@ fun SingleTaskEditorView(
                     repeatIntervalHours = repeatHoursText.toIntOrNull() ?: 0,
                     repeatIntervalMinutes = repeatMinutesText.toIntOrNull() ?: 0
                 )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (locationName.isNotBlank() || latitude != null) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier.clickable {
-                                if (latitude != null && longitude != null) {
-                                    LocationAndContactHelper.openInMap(context, latitude!!, longitude!!, locationName)
-                                }
-                            }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(13.dp))
-                                Spacer(Modifier.width(3.dp))
-                                Text(
-                                    text = locationName.ifBlank { "GPS: ${String.format(Locale.US, "%.3f, %.3f", latitude, longitude)}" },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-
-                    if (tagsText.isNotBlank()) {
-                        tagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { tag ->
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text(
-                                    text = "#$tag",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    if (liveChecklist.isNotEmpty()) {
-                        val doneCount = liveChecklist.count { it.isDone }
-                        Surface(
-                            color = if (doneCount == liveChecklist.size) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.outline)
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = "Checklist: $doneCount/${liveChecklist.size}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-
-                    if (liveAttachments.isNotEmpty()) {
-                        val filesCount = liveAttachments.count { it.type == AttachmentType.FILE || it.type == AttachmentType.IMAGE }
-                        val audiosCount = liveAttachments.count { it.type == AttachmentType.AUDIO }
-                        val videosCount = liveAttachments.count { it.type == AttachmentType.VIDEO }
-                        val contactsCount = liveAttachments.count { it.type == AttachmentType.CONTACT }
-
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
-                                Spacer(Modifier.width(3.dp))
-                                val summaryParts = mutableListOf<String>()
-                                if (filesCount > 0) summaryParts.add("$filesCount files")
-                                if (audiosCount > 0) summaryParts.add("$audiosCount audio")
-                                if (videosCount > 0) summaryParts.add("$videosCount video")
-                                if (contactsCount > 0) summaryParts.add("$contactsCount contacts")
-                                Text(
-                                    text = summaryParts.joinToString(", "),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -4541,6 +4435,9 @@ fun SingleTaskEditorView(
                 }
             }
 
+            // =========================================================================================
+            // ATTACHMENTS CARD WITH MULTI-SELECT ACTION BANNER
+            // =========================================================================================
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier
@@ -4749,7 +4646,7 @@ fun SingleTaskEditorView(
                                         ContactActionRow(
                                             displayName = att.displayName,
                                             phoneNumber = att.contactPhone,
-                                            isPending = att.isContactPending,
+                                            isPending = contactIsPending(att),
                                             onTogglePending = {
                                                 viewModel.updateAttachment(
                                                     att,
@@ -4858,4 +4755,10 @@ fun SingleTaskEditorView(
             }
         }
     }
+}
+
+private fun contactIsPending(att: RichAttachment): Boolean {
+    return att.isContactPending
+}
+    )
 }
