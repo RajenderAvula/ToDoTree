@@ -194,8 +194,79 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Main) { onComplete(success) }
         }
     }
+    
+suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
+    val hasPermission = ContextCompat.checkSelfPermission(
+        getApplication(),
+        android.Manifest.permission.WRITE_CALENDAR
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!hasPermission) return false
 
-    suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
+    return try {
+        val target = CalendarHelper.getPrimaryGoogleCalendar(getApplication()) ?: return false
+        val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
+        val createdEpochMs = task.createdTimestamp
+
+        val parentTask = if (task.parentId != null) dao.getTaskById(task.parentId) else null
+        val hierarchyPrefix = if (parentTask != null) "[Subtask of '${parentTask.title}'] " else "[Main Task] "
+        val cleanTitle = task.title.removePrefix("[DONE] ✓ ")
+        val fullCalendarTitle = if (task.isCompleted) "[DONE] ✓ $hierarchyPrefix$cleanTitle" else "$hierarchyPrefix$cleanTitle"
+
+        val attachments = dao.getAttachmentsSnapshot(task.id)
+        val checklists = dao.getChecklistSnapshot(task.id)
+
+        val notesBody = task.notes ?: ""
+        val tagsSummary = if (!task.tags.isNullOrBlank()) "Tags: [${task.tags}]\n" else ""
+        val locSummary = if (!task.locationName.isNullOrBlank() || (task.latitude != null && task.longitude != null)) {
+            "Location: ${task.locationName ?: "Coordinates: ${task.latitude}, ${task.longitude}"}\n"
+        } else ""
+
+        val chkSummary = if (checklists.isNotEmpty()) {
+            "\n\nChecklist:\n" + checklists.joinToString("\n") { (if (it.isDone) "✓ " else "○ ") + it.text }
+        } else ""
+        val attSummary = if (attachments.isNotEmpty()) {
+            "\n\nAttachments & Contacts:\n" + attachments.joinToString("\n") { "- [${it.type}] ${it.displayName}" }
+        } else ""
+
+        val auditNote = "Created: ${dateFormat.format(Date(createdEpochMs))}\nModified: ${dateFormat.format(Date(task.lastModifiedTimestamp))}\n"
+        val repeatNotice = if (task.repeatRule != RecurrenceRule.NONE) "Recurrence: ${task.repeatRule.name}\n" else ""
+        val fullDescription = "$auditNote$tagsSummary$locSummary$repeatNotice Priority: ${task.priority.name}\nStatus: ${if (task.isCompleted) "Completed" else "Pending"}\n\n$notesBody$chkSummary$attSummary".trim()
+
+        // 1. Check if the event is actually present and active in the calendar
+        val eventAlive = task.calendarEventId != null && CalendarHelper.eventExists(getApplication(), task.calendarEventId!!)
+
+        var updatedSuccessfully = false
+        if (eventAlive) {
+            updatedSuccessfully = CalendarHelper.updateEvent(
+                context = getApplication(),
+                target = target,
+                eventId = task.calendarEventId!!,
+                title = fullCalendarTitle,
+                notes = fullDescription,
+                createdTimestampMs = createdEpochMs
+            )
+        }
+
+        // 2. If deleted in Google Calendar or update failed, re-insert to reflect it back in Calendar
+        if (!updatedSuccessfully) {
+            val newEventId = CalendarHelper.insertEvent(
+                context = getApplication(),
+                target = target,
+                title = fullCalendarTitle,
+                createdTimestampMs = createdEpochMs,
+                notes = fullDescription
+            )
+            if (newEventId != null) {
+                dao.updateTask(task.copy(calendarEventId = newEventId))
+            }
+        }
+        true
+    } catch (e: Exception) {
+        Log.e("CalendarSync", "Sync failed for task '${task.title}'", e)
+        false
+    }
+}
+    /*suspend fun syncTaskToCalendar(task: TaskItem): Boolean {
         val hasPermission = ContextCompat.checkSelfPermission(
             getApplication(),
             android.Manifest.permission.WRITE_CALENDAR
@@ -256,7 +327,7 @@ class TaskViewModel(application: Application) : AndroidViewModel(application) {
             false
         }
     }
-
+*/
     fun syncAllTasksToCalendar(onDone: (Int) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val all = dao.getAllTasksSnapshot()
