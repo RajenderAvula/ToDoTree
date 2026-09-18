@@ -3,7 +3,6 @@ package com.example.infinitetodo
 import android.Manifest
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -32,6 +31,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
@@ -61,7 +61,6 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 val fullDateTimeFormat: SimpleDateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
@@ -129,6 +128,9 @@ fun MainAppScaffold(
     val scope = rememberCoroutineScope()
 
     var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
+    var customHierarchyTransferBatch by remember { mutableStateOf<List<TaskItem>?>(null) }
+    var isCustomHierarchyTransferCopy by remember { mutableStateOf(false) }
+    var taskForRoleSwap by remember { mutableStateOf<TaskItem?>(null) }
 
     val context = LocalContext.current
 
@@ -208,7 +210,12 @@ fun MainAppScaffold(
                     },
                     onOpenFullScreen = { task: TaskItem -> activeFullScreenTask = task },
                     onMoveTask = { task -> taskForAdvancedTransfer = Pair(task, false) },
-                    onCopyTask = { task -> taskForAdvancedTransfer = Pair(task, true) }
+                    onCopyTask = { task -> taskForAdvancedTransfer = Pair(task, true) },
+                    onCustomHierarchyTransfer = { batch, isCopy ->
+                        customHierarchyTransferBatch = batch
+                        isCustomHierarchyTransferCopy = isCopy
+                    },
+                    onSwapTaskRole = { task -> taskForRoleSwap = task }
                 )
                 AppNavTab.CALENDAR -> CalendarAgendaTab(
                     viewModel = viewModel,
@@ -233,366 +240,43 @@ fun MainAppScaffold(
                 FullScreenTaskWorkspaceDialog(
                     initialTask = taskToEdit,
                     viewModel = viewModel,
-                    onDismiss = { activeFullScreenTask = null }
+                    onDismiss = { activeFullScreenTask = null },
+                    onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
+                    onCopyTask = { taskForAdvancedTransfer = Pair(it, true) }
                 )
             }
         }
 
-       /* taskForAdvancedTransfer?.let { (task, isCopy) ->
+        taskForAdvancedTransfer?.let { (task, isCopy) ->
             AdvancedTaskTransferDialog(
                 task = task,
                 isCopy = isCopy,
                 viewModel = viewModel,
                 onDismiss = { taskForAdvancedTransfer = null }
             )
-        }*/
-        // 1. In MainActivity.kt, the dialog states:
-var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
-var customHierarchyTransferBatch by remember { mutableStateOf<List<TaskItem>?>(null) }
-var isCustomHierarchyTransferCopy by remember { mutableStateOf(false) }
-var taskForRoleSwap by remember { mutableStateOf<TaskItem?>(null) }
-
-// 2. In MainAppScaffold bottom:
-taskForAdvancedTransfer?.let { (task, isCopy) ->
-    AdvancedTaskTransferDialog(
-        task = task,
-        isCopy = isCopy,
-        viewModel = viewModel,
-        onDismiss = { taskForAdvancedTransfer = null }
-    )
-}
-
-customHierarchyTransferBatch?.let { batch ->
-    CustomHierarchyTransferDialog(
-        tasksToTransfer = batch,
-        isCopy = isCustomHierarchyTransferCopy,
-        viewModel = viewModel,
-        onDismiss = { customHierarchyTransferBatch = null }
-    )
-}
-
-taskForRoleSwap?.let { taskA ->
-    SwapTaskRoleDialog(
-        taskA = taskA,
-        viewModel = viewModel,
-        onDismiss = { taskForRoleSwap = null }
-    )
-}
-    }
-}
-
-// -----------------------------------------------------------------------------------------
-// PAGINATION CONTROLLER WIDGET
-// -----------------------------------------------------------------------------------------
-@Composable
-fun TaskPaginationBar(
-    currentPage: Int,
-    totalItems: Int,
-    itemsPerPage: Int = TASKS_PER_PAGE,
-    onPageChange: (Int) -> Unit
-) {
-    val totalPages = remember(totalItems, itemsPerPage) {
-        ceil(totalItems.toDouble() / itemsPerPage).toInt().coerceAtLeast(1)
-    }
-
-    if (totalPages > 1) {
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 80.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = { onPageChange(currentPage - 1) },
-                    enabled = currentPage > 1,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Prev")
-                }
-
-                Text(
-                    text = "Page $currentPage of $totalPages ($totalItems items)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                OutlinedButton(
-                    onClick = { onPageChange(currentPage + 1) },
-                    enabled = currentPage < totalPages,
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    Text("Next")
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.AutoMirrored.Filled.ArrowRight, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
-            }
         }
-    } else {
-        Spacer(Modifier.height(80.dp))
-    }
-}
 
-// -----------------------------------------------------------------------------------------
-// ADVANCED TRANSFER DIALOG
-// -----------------------------------------------------------------------------------------
-/*@Composable
-fun AdvancedTaskTransferDialog(
-    task: TaskItem,
-    isCopy: Boolean,
-    viewModel: TaskViewModel,
-    onDismiss: () -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+        customHierarchyTransferBatch?.let { batch ->
+            CustomHierarchyTransferDialog(
+                tasksToTransfer = batch,
+                isCopy = isCustomHierarchyTransferCopy,
+                viewModel = viewModel,
+                onDismiss = { customHierarchyTransferBatch = null }
+            )
+        }
 
-    var moveOrCopyAll by remember { mutableStateOf(true) }
-    var selectedSubtaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var allDescendantNodes by remember { mutableStateOf<List<DescendantNode>>(emptyList()) }
-
-    var numberOfCopies by remember { mutableIntStateOf(1) }
-    var potentialParents by remember { mutableStateOf<List<TaskItem>>(emptyList()) }
-    var selectedTargetIds by remember { mutableStateOf<Set<Long?>>(emptySet()) }
-
-    LaunchedEffect(task.id, isCopy) {
-        scope.launch {
-            allDescendantNodes = viewModel.getAllDescendantsTree(task.id)
-            potentialParents = viewModel.getAllPotentialParents(task.id, isCopy)
+        taskForRoleSwap?.let { taskA ->
+            SwapTaskRoleDialog(
+                taskA = taskA,
+                viewModel = viewModel,
+                onDismiss = { taskForRoleSwap = null }
+            )
         }
     }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = if (isCopy) Icons.Default.ContentCopy else Icons.Default.DriveFileMove,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = if (isCopy) "Copy '${task.title.ifBlank { "Task" }}'" else "Move '${task.title.ifBlank { "Task" }}'",
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                if (allDescendantNodes.isNotEmpty()) {
-                    Text("Subtask Transfer Scope:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = moveOrCopyAll, onClick = { moveOrCopyAll = true })
-                        Spacer(Modifier.width(6.dp))
-                        Text("Entire Task with all Subtrees (${allDescendantNodes.size} descendants)")
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = !moveOrCopyAll, onClick = { moveOrCopyAll = false })
-                        Spacer(Modifier.width(6.dp))
-                        Text("Select specific subtasks, sub-subtasks...")
-                    }
-
-                    if (!moveOrCopyAll) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 200.dp)
-                        ) {
-                            LazyColumn(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                items(allDescendantNodes, key = { it.task.id }) { node ->
-                                    val isChecked = node.task.id in selectedSubtaskIds
-                                    val indentPrefix = "â€”".repeat(node.depthLevel)
-                                    val levelTag = when (node.depthLevel) {
-                                        1 -> "[Sub]"
-                                        2 -> "[Sub-Sub]"
-                                        else -> "[Sub-Sub-Sub]"
-                                    }
-
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable {
-                                                selectedSubtaskIds = if (isChecked) selectedSubtaskIds - node.task.id else selectedSubtaskIds + node.task.id
-                                            }
-                                            .padding(start = ((node.depthLevel - 1) * 12).dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Checkbox(
-                                            checked = isChecked,
-                                            onCheckedChange = {
-                                                selectedSubtaskIds = if (isChecked) selectedSubtaskIds - node.task.id else selectedSubtaskIds + node.task.id
-                                            }
-                                        )
-                                        Text(
-                                            text = "$indentPrefix $levelTag ${node.task.title.ifBlank { "Task #${node.task.id}" }}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = if (node.depthLevel == 1) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                }
-
-                if (isCopy) {
-                    Text("Number of Copies to Make:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilledTonalIconButton(
-                            onClick = { if (numberOfCopies > 1) numberOfCopies-- },
-                            enabled = numberOfCopies > 1
-                        ) {
-                            Icon(Icons.Default.Remove, contentDescription = "Minus")
-                        }
-
-                        Text(
-                            text = "$numberOfCopies copy${if (numberOfCopies > 1) "ies" else ""}",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-
-                        FilledTonalIconButton(
-                            onClick = { numberOfCopies++ }
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "Add")
-                        }
-                    }
-                    HorizontalDivider()
-                }
-
-                Text("Select Target Destination(s):", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
-
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 240.dp)
-                ) {
-                    LazyColumn(modifier = Modifier.padding(6.dp)) {
-                        item {
-                            val isRootChecked = null in selectedTargetIds
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedTargetIds = if (isRootChecked) selectedTargetIds - null else selectedTargetIds + null
-                                    }
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = isRootChecked,
-                                    onCheckedChange = {
-                                        selectedTargetIds = if (isRootChecked) selectedTargetIds - null else selectedTargetIds + null
-                                    }
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Icon(Icons.Default.Home, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("â˜… Root Level (Main Task)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            }
-                            HorizontalDivider()
-                        }
-
-                        items(potentialParents, key = { it.id }) { parentCandidate ->
-                            val isTargetChecked = parentCandidate.id in selectedTargetIds
-                            val isOwnDescendant = remember(allDescendantNodes, parentCandidate.id) {
-                                allDescendantNodes.any { it.task.id == parentCandidate.id }
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        selectedTargetIds = if (isTargetChecked) selectedTargetIds - parentCandidate.id else selectedTargetIds + parentCandidate.id
-                                    }
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = isTargetChecked,
-                                    onCheckedChange = {
-                                        selectedTargetIds = if (isTargetChecked) selectedTargetIds - parentCandidate.id else selectedTargetIds + parentCandidate.id
-                                    }
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Column {
-                                    Text(
-                                        text = parentCandidate.title.ifBlank { "Task #${parentCandidate.id}" },
-                                        fontWeight = FontWeight.Medium,
-                                        color = if (isOwnDescendant) MaterialTheme.colorScheme.secondary else Color.Unspecified
-                                    )
-                                    Text(
-                                        text = if (isOwnDescendant) "[Own Subtask/Descendant in hierarchy]" else if (parentCandidate.parentId == null) "Main Task" else "Subtask",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (isOwnDescendant) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = selectedTargetIds.isNotEmpty(),
-                onClick = {
-                    if (isCopy) {
-                        viewModel.executeAdvancedCopy(
-                            task = task,
-                            targetParentIds = selectedTargetIds,
-                            numberOfCopies = numberOfCopies,
-                            copyAllSubtasks = moveOrCopyAll,
-                            selectedSubtaskIds = selectedSubtaskIds
-                        )
-                        Toast.makeText(context, "Copied $numberOfCopies time(s) successfully âœ“", Toast.LENGTH_SHORT).show()
-                    } else {
-                        viewModel.executeAdvancedMove(
-                            task = task,
-                            targetParentIds = selectedTargetIds,
-                            moveAllSubtasks = moveOrCopyAll,
-                            selectedSubtaskIds = selectedSubtaskIds
-                        )
-                        Toast.makeText(context, "Moved task successfully âœ“", Toast.LENGTH_SHORT).show()
-                    }
-                    onDismiss()
-                }
-            ) {
-                Text(if (isCopy) "Confirm Copy (${selectedTargetIds.size})" else "Confirm Move")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}*/
+}
 
 // -----------------------------------------------------------------------------------------
-// CONTACT ACTION STRIP
+// COMPACT CONTACT QUICK ACTION STRIP
 // -----------------------------------------------------------------------------------------
 @Composable
 fun ContactActionRow(
@@ -644,7 +328,12 @@ fun ContactActionRow(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchDialer(context, phoneNumber) }
             ) {
-                Icon(Icons.Default.Phone, contentDescription = "Call", tint = Color(0xFF1976D2), modifier = Modifier.size(14.dp))
+                Icon(
+                    Icons.Default.Phone,
+                    contentDescription = "Call",
+                    tint = Color(0xFF1976D2),
+                    modifier = Modifier.size(14.dp)
+                )
             }
             Spacer(Modifier.width(4.dp))
 
@@ -652,7 +341,12 @@ fun ContactActionRow(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchSms(context, phoneNumber) }
             ) {
-                Icon(Icons.Default.ChatBubble, contentDescription = "Text SMS", tint = Color(0xFFF57C00), modifier = Modifier.size(14.dp))
+                Icon(
+                    Icons.Default.ChatBubble,
+                    contentDescription = "Text SMS",
+                    tint = Color(0xFFF57C00),
+                    modifier = Modifier.size(14.dp)
+                )
             }
             Spacer(Modifier.width(4.dp))
 
@@ -660,7 +354,12 @@ fun ContactActionRow(
                 modifier = Modifier.size(28.dp),
                 onClick = { LocationAndContactHelper.launchWhatsApp(context, phoneNumber) }
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "WhatsApp", tint = Color(0xFF2E7D32), modifier = Modifier.size(14.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "WhatsApp",
+                    tint = Color(0xFF2E7D32),
+                    modifier = Modifier.size(14.dp)
+                )
             }
             Spacer(Modifier.width(4.dp))
 
@@ -669,7 +368,12 @@ fun ContactActionRow(
                     modifier = Modifier.size(28.dp),
                     onClick = { showExtraMenu = true }
                 ) {
-                    Icon(Icons.Default.Apps, contentDescription = "All Apps", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(15.dp))
+                    Icon(
+                        Icons.Default.Apps,
+                        contentDescription = "All Messaging Apps",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(15.dp)
+                    )
                 }
 
                 DropdownMenu(
@@ -703,7 +407,7 @@ fun ContactActionRow(
                     modifier = Modifier.clickable { onTogglePending() }
                 ) {
                     Text(
-                        text = if (isPending) "Pending" else "Done âœ“",
+                        text = if (isPending) "Pending" else "Done",
                         color = if (isPending) Color(0xFFE65100) else Color(0xFF2E7D32),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
@@ -715,6 +419,9 @@ fun ContactActionRow(
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// REUSABLE TASK METADATA STATUS ROW
+// -----------------------------------------------------------------------------------------
 @Composable
 fun TaskMetadataStatusRow(
     task: TaskItem? = null,
@@ -734,7 +441,7 @@ fun TaskMetadataStatusRow(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(top = 2.dp),
+            .padding(top = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -748,7 +455,12 @@ fun TaskMetadataStatusRow(
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = "Completed", modifier = Modifier.size(13.dp), tint = Color(0xFF2E7D32))
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Completed",
+                        modifier = Modifier.size(13.dp),
+                        tint = Color(0xFF2E7D32)
+                    )
                     Spacer(Modifier.width(4.dp))
                     Text(
                         text = "Completed: ${dateFormat.format(Date(doneDate))}",
@@ -770,7 +482,7 @@ fun TaskMetadataStatusRow(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            Icons.Default.Event,
+                            imageVector = Icons.Default.Event,
                             contentDescription = "Due Date",
                             modifier = Modifier.size(12.dp),
                             tint = if (isOverdue) Color(0xFFD32F2F) else MaterialTheme.colorScheme.outline
@@ -796,7 +508,12 @@ fun TaskMetadataStatusRow(
                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Alarm, contentDescription = "Reminder Alert", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        Icons.Default.Alarm,
+                        contentDescription = "Reminder Alert",
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Spacer(Modifier.width(3.dp))
                     Text("Remind: ${dateFormat.format(Date(rem))}", style = MaterialTheme.typography.labelSmall)
                 }
@@ -812,7 +529,12 @@ fun TaskMetadataStatusRow(
                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Repeat, contentDescription = "Repeat Pattern", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.tertiary)
+                    Icon(
+                        Icons.Default.Repeat,
+                        contentDescription = "Repeat Pattern",
+                        modifier = Modifier.size(12.dp),
+                        tint = MaterialTheme.colorScheme.tertiary
+                    )
                     Spacer(Modifier.width(3.dp))
                     Text(
                         text = when (repeatRule) {
@@ -921,6 +643,9 @@ fun HighlightedText(
     Text(annotated, style = style, fontWeight = fontWeight)
 }
 
+// -----------------------------------------------------------------------------------------
+// COMMON MULTI-CRITERIA FILTER BAR
+// -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskFilterHeaderBar(
@@ -1009,7 +734,11 @@ fun TaskFilterHeaderBar(
                         Toast.makeText(context, "Filters reset", Toast.LENGTH_SHORT).show()
                     }
                 ) {
-                    Icon(Icons.Default.FilterAltOff, contentDescription = "Reset Filters", tint = MaterialTheme.colorScheme.error)
+                    Icon(
+                        imageVector = Icons.Default.FilterAltOff,
+                        contentDescription = "Reset Filters",
+                        tint = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         }
@@ -1053,7 +782,7 @@ fun TaskFilterHeaderBar(
                                 if (loc in current) current.remove(loc) else current.add(loc)
                                 viewModel.updateFilter(filterState.copy(selectedLocations = current))
                             },
-                            label = { Text("ðŸ“ $loc") }
+                            label = { Text("Loc: $loc") }
                         )
                     }
                 }
@@ -1085,13 +814,7 @@ fun TaskFilterHeaderBar(
                                 if (priority in current) current.remove(priority) else current.add(priority)
                                 viewModel.updateFilter(filterState.copy(priorities = current))
                             },
-                            label = {
-                                if (priority == TaskPriority.URGENT) {
-                                    Text("ðŸ”¥ URGENT", fontWeight = FontWeight.ExtraBold)
-                                } else {
-                                    Text(priority.name)
-                                }
-                            },
+                            label = { Text(priority.name) },
                             colors = if (priority == TaskPriority.URGENT && priority in filterState.priorities) {
                                 FilterChipDefaults.filterChipColors(containerColor = Color(0xFFD32F2F), labelColor = Color.White)
                             } else FilterChipDefaults.filterChipColors()
@@ -1177,11 +900,6 @@ fun HomeDashboardTab(
     val filterState by viewModel.filterState.collectAsState()
 
     var showTodayNotificationsDialog by remember { mutableStateOf(false) }
-    var currentPage by remember { mutableIntStateOf(1) }
-
-    var isMultiSelectTasksMode by remember { mutableStateOf(false) }
-    var selectedTaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var showBatchDeleteTasksConfirm by remember { mutableStateOf(false) }
 
     val todayDueTasks = remember(allTasks) {
         val endOfTodayMs = Calendar.getInstance().apply {
@@ -1221,95 +939,13 @@ fun HomeDashboardTab(
         }
     }
 
-    val paginatedTasks = remember(displayedTasks, currentPage) {
-        val startIndex = (currentPage - 1) * TASKS_PER_PAGE
-        displayedTasks.drop(startIndex).take(TASKS_PER_PAGE)
-    }
-
-    if (showBatchDeleteTasksConfirm) {
-        DeleteConfirmationDialog(
-            title = "Delete ${selectedTaskIds.size} Task(s)?",
-            message = "Are you sure you want to delete the ${selectedTaskIds.size} selected tasks? All subtasks, checklists, attachments, and calendar entries will also be permanently deleted.",
-            onConfirm = {
-                selectedTaskIds.forEach { id ->
-                    allTasks.find { it.id == id }?.let { viewModel.deleteTask(it) }
-                }
-                selectedTaskIds = emptySet()
-                isMultiSelectTasksMode = false
-                showBatchDeleteTasksConfirm = false
-            },
-            onDismiss = { showBatchDeleteTasksConfirm = false }
-        )
-    }
-
     Column(modifier = Modifier.fillMaxSize()) {
         TaskFilterHeaderBar(viewModel, searchQuery) { searchQuery = it }
-
-        if (isMultiSelectTasksMode) {
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "${selectedTaskIds.size} selected",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        TextButton(
-                            onClick = {
-                                selectedTaskIds = if (selectedTaskIds.size == displayedTasks.size) {
-                                    emptySet()
-                                } else {
-                                    displayedTasks.map { it.id }.toSet()
-                                }
-                            }
-                        ) {
-                            Text(if (selectedTaskIds.size == displayedTasks.size) "Deselect All" else "Select All")
-                        }
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (selectedTaskIds.isNotEmpty()) {
-                            Button(
-                                onClick = { showBatchDeleteTasksConfirm = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Delete")
-                            }
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                isMultiSelectTasksMode = false
-                                selectedTaskIds = emptySet()
-                            },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Cancel")
-                        }
-                    }
-                }
-            }
-        }
 
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
@@ -1319,52 +955,40 @@ fun HomeDashboardTab(
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface,
-                                shape = RoundedCornerShape(20.dp),
-                                modifier = Modifier.padding(end = 10.dp)
-                            ) {
-                                IconButton(
-                                    onClick = { showTodayNotificationsDialog = true },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    BadgedBox(
-                                        badge = {
-                                            if (todayDueTasks.isNotEmpty()) {
-                                                Badge(
-                                                    containerColor = MaterialTheme.colorScheme.error,
-                                                    contentColor = MaterialTheme.colorScheme.onError
-                                                ) {
-                                                    Text("${todayDueTasks.size}")
-                                                }
-                                            }
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = if (todayDueTasks.isNotEmpty()) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
-                                            contentDescription = "Alerts",
-                                            tint = if (todayDueTasks.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    }
-                                }
-                            }
-
                             Text(
-                                text = "Task Analytics & Summary",
+                                text = "Task Analytics & Metrics Summary",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f, fill = false)
                             )
 
-                            if (!isMultiSelectTasksMode && displayedTasks.isNotEmpty()) {
-                                TextButton(onClick = { isMultiSelectTasksMode = true }) {
-                                    Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Select Tasks")
+                            IconButton(
+                                onClick = { showTodayNotificationsDialog = true },
+                                modifier = Modifier.padding(end = 6.dp)
+                            ) {
+                                BadgedBox(
+                                    badge = {
+                                        if (todayDueTasks.isNotEmpty()) {
+                                            Badge(
+                                                containerColor = MaterialTheme.colorScheme.error,
+                                                contentColor = MaterialTheme.colorScheme.onError
+                                            ) {
+                                                Text("${todayDueTasks.size}")
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = if (todayDueTasks.isNotEmpty()) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
+                                        contentDescription = "Alerts",
+                                        tint = if (todayDueTasks.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
@@ -1396,11 +1020,10 @@ fun HomeDashboardTab(
                 }
             }
 
-            items(paginatedTasks, key = { it.id }) { task ->
+            items(displayedTasks, key = { it.id }) { task ->
                 val subtaskCount by viewModel.getSubtaskCount(task.id).collectAsState(initial = 0)
                 val attachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
                 val contacts = remember(attachments) { attachments.filter { it.type == AttachmentType.CONTACT } }
-                val isTaskSelected = task.id in selectedTaskIds
 
                 var hierarchyPath by remember { mutableStateOf("") }
                 val scope = rememberCoroutineScope()
@@ -1411,16 +1034,7 @@ fun HomeDashboardTab(
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(
-                            if (isTaskSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier
-                        )
-                        .clickable {
-                            if (isMultiSelectTasksMode) {
-                                selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
-                            } else {
-                                onOpenTask(task)
-                            }
-                        },
+                        .clickable { onOpenTask(task) },
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
@@ -1435,15 +1049,6 @@ fun HomeDashboardTab(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 4.dp)) {
-                            if (isMultiSelectTasksMode) {
-                                Checkbox(
-                                    checked = isTaskSelected,
-                                    onCheckedChange = {
-                                        selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
-                                    }
-                                )
-                                Spacer(Modifier.width(6.dp))
-                            }
                             PriorityBadge(task.priority)
                             if (subtaskCount > 0) {
                                 Spacer(Modifier.width(8.dp))
@@ -1454,24 +1059,15 @@ fun HomeDashboardTab(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (!isMultiSelectTasksMode) {
-                                Checkbox(
-                                    checked = task.isCompleted,
-                                    onCheckedChange = { viewModel.toggleTaskCompletion(task) }
-                                )
-                                Spacer(Modifier.width(6.dp))
-                            }
-
+                            Checkbox(
+                                checked = task.isCompleted,
+                                onCheckedChange = { viewModel.toggleTaskCompletion(task) }
+                            )
+                            Spacer(Modifier.width(6.dp))
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clickable {
-                                        if (isMultiSelectTasksMode) {
-                                            selectedTaskIds = if (isTaskSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
-                                        } else {
-                                            onOpenTask(task)
-                                        }
-                                    }
+                                    .clickable { onOpenTask(task) }
                             ) {
                                 HighlightedText(
                                     text = task.title.ifBlank { "Untitled Task" },
@@ -1555,15 +1151,6 @@ fun HomeDashboardTab(
                     }
                 }
             }
-
-            item {
-                TaskPaginationBar(
-                    currentPage = currentPage,
-                    totalItems = displayedTasks.size,
-                    itemsPerPage = TASKS_PER_PAGE,
-                    onPageChange = { currentPage = it }
-                )
-            }
         }
 
         if (showTodayNotificationsDialog) {
@@ -1609,7 +1196,7 @@ fun HomeDashboardTab(
 
                                             item.dueTimestamp?.let { due ->
                                                 Text(
-                                                    text = "ðŸ“… Due: ${SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(due))}",
+                                                    text = "Due: ${SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(due))}",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.error,
                                                     fontWeight = FontWeight.SemiBold
@@ -1618,7 +1205,7 @@ fun HomeDashboardTab(
 
                                             item.reminderTimestamp?.let { rem ->
                                                 Text(
-                                                    text = "â° Reminder: ${SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(rem))}",
+                                                    text = "Reminder: ${SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(rem))}",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.primary,
                                                     fontWeight = FontWeight.SemiBold
@@ -1631,7 +1218,7 @@ fun HomeDashboardTab(
                                                     else -> item.repeatRule.name
                                                 }
                                                 Text(
-                                                    text = "ðŸ” Repeat: $repDetail",
+                                                    text = "Repeat: $repDetail",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.tertiary,
                                                     fontWeight = FontWeight.SemiBold
@@ -1656,7 +1243,7 @@ fun HomeDashboardTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 2. TASKS TREE TAB
+// 2. TASKS TREE TAB (MOVE & COPY ROUTED DIRECTLY)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TasksTreeTab(
@@ -1665,7 +1252,9 @@ fun TasksTreeTab(
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
     onMoveTask: (TaskItem) -> Unit,
-    onCopyTask: (TaskItem) -> Unit
+    onCopyTask: (TaskItem) -> Unit,
+    onCustomHierarchyTransfer: (List<TaskItem>, Boolean) -> Unit,
+    onSwapTaskRole: (TaskItem) -> Unit
 ) {
     val rootTasks by viewModel.rootTasks.collectAsState(initial = emptyList())
     var searchQuery by remember { mutableStateOf("") }
@@ -1673,8 +1262,6 @@ fun TasksTreeTab(
     val filterState by viewModel.filterState.collectAsState()
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
     val context = LocalContext.current
-
-    var currentPage by remember { mutableIntStateOf(1) }
 
     var isMultiSelectTreeMode by remember { mutableStateOf(false) }
     var selectedTaskIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
@@ -1693,15 +1280,10 @@ fun TasksTreeTab(
         }
     }
 
-    val paginatedTasks = remember(displayedTasks, currentPage) {
-        val startIndex = (currentPage - 1) * TASKS_PER_PAGE
-        displayedTasks.drop(startIndex).take(TASKS_PER_PAGE)
-    }
-
     if (showBatchDeleteConfirm) {
         DeleteConfirmationDialog(
             title = "Delete ${selectedTaskIds.size} Task(s)?",
-            message = "Are you sure you want to delete the ${selectedTaskIds.size} selected tasks and their subtrees?",
+            message = "Are you sure you want to delete the selected tasks and their subtrees?",
             onConfirm = {
                 selectedTaskIds.forEach { id ->
                     allTasks.find { it.id == id }?.let { viewModel.deleteTask(it) }
@@ -1752,6 +1334,18 @@ fun TasksTreeTab(
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (selectedTaskIds.isNotEmpty()) {
                             Button(
+                                onClick = {
+                                    val selectedTasksList = allTasks.filter { it.id in selectedTaskIds }
+                                    onCustomHierarchyTransfer(selectedTasksList, false)
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.AccountTree, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Custom Transfer")
+                            }
+
+                            Button(
                                 onClick = { showBatchDeleteConfirm = true },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
@@ -1787,12 +1381,10 @@ fun TasksTreeTab(
         ) {
             Text("Hierarchical Tasks", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Row {
-                IconButton(onClick = { isMultiSelectTreeMode = !isMultiSelectTreeMode }) {
-                    Icon(
-                        Icons.Default.Checklist,
-                        contentDescription = "Multi Select",
-                        tint = if (isMultiSelectTreeMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                    )
+                if (!isMultiSelectTreeMode && displayedTasks.isNotEmpty()) {
+                    IconButton(onClick = { isMultiSelectTreeMode = true }) {
+                        Icon(Icons.Default.Checklist, contentDescription = "Batch Select Tasks")
+                    }
                 }
                 IconButton(onClick = {
                     viewModel.syncAllTasksToCalendar { count ->
@@ -1814,42 +1406,18 @@ fun TasksTreeTab(
                 .fillMaxSize()
                 .padding(horizontal = 6.dp, vertical = 2.dp)
         ) {
-            items(paginatedTasks, key = { it.id }) { task ->
-                val isSelected = task.id in selectedTaskIds
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isMultiSelectTreeMode) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = {
-                                selectedTaskIds = if (isSelected) selectedTaskIds - task.id else selectedTaskIds + task.id
-                            },
-                            modifier = Modifier.padding(start = 6.dp)
-                        )
-                    }
-
-                    Box(modifier = Modifier.weight(1f)) {
-                        TaskNodeView(
-                            task = task,
-                            depth = 0,
-                            viewMode = viewMode,
-                            searchQuery = searchQuery,
-                            viewModel = viewModel,
-                            onAddSubtask = onAddSubtask,
-                            onOpenFullScreen = onOpenFullScreen,
-                            onMoveTask = onMoveTask,
-                            onCopyTask = onCopyTask
-                        )
-                    }
-                }
-            }
-
-            item {
-                TaskPaginationBar(
-                    currentPage = currentPage,
-                    totalItems = displayedTasks.size,
-                    itemsPerPage = TASKS_PER_PAGE,
-                    onPageChange = { currentPage = it }
+            items(displayedTasks, key = { it.id }) { task ->
+                TaskNodeView(
+                    task = task,
+                    depth = 0,
+                    viewMode = viewMode,
+                    searchQuery = searchQuery,
+                    viewModel = viewModel,
+                    onAddSubtask = onAddSubtask,
+                    onOpenFullScreen = onOpenFullScreen,
+                    onMoveTask = onMoveTask,
+                    onCopyTask = onCopyTask,
+                    onSwapTaskRole = onSwapTaskRole
                 )
             }
         }
@@ -1967,7 +1535,7 @@ fun CalendarAgendaTab(
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     PriorityBadge(task.priority)
                                     if (task.calendarEventId != null) {
-                                        Text("â€¢ Google Calendar Synced âœ“", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        Text("| Google Calendar Synced", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                     }
                                 }
                             }
@@ -1983,7 +1551,7 @@ fun CalendarAgendaTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// 4. GANTT CHART TAB
+// 4. GANTT CHART TAB (CLEAN EXPANDER & WORKSPACE ICONS)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun GanttChartTab(
@@ -2089,10 +1657,26 @@ fun GanttChartTab(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             TextButton(onClick = { showDetails = !showDetails }) {
-                                Text(if (showDetails) "Hide Details â–²" else "Show Details â–¼", style = MaterialTheme.typography.labelSmall)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(if (showDetails) "Hide Details" else "Show Details", style = MaterialTheme.typography.labelSmall)
+                                    Spacer(Modifier.width(2.dp))
+                                    Icon(
+                                        imageVector = if (showDetails) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                             TextButton(onClick = { onOpenTask(task) }) {
-                                Text("Open Workspace âž”", style = MaterialTheme.typography.labelSmall)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Open Workspace", style = MaterialTheme.typography.labelSmall)
+                                    Spacer(Modifier.width(2.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -2317,7 +1901,7 @@ fun SettingsManagerTab(
 }
 
 // -----------------------------------------------------------------------------------------
-// REUSABLE TASK TREE ROW
+// REUSABLE TASK TREE ROW (WITH DIRECT MOVE & COPY INVOCATIONS & UNICODE FIX)
 // -----------------------------------------------------------------------------------------
 @Composable
 fun TaskNodeView(
@@ -2329,7 +1913,8 @@ fun TaskNodeView(
     onAddSubtask: (Long) -> Unit,
     onOpenFullScreen: (TaskItem) -> Unit,
     onMoveTask: (TaskItem) -> Unit,
-    onCopyTask: (TaskItem) -> Unit
+    onCopyTask: (TaskItem) -> Unit,
+    onSwapTaskRole: (TaskItem) -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
@@ -2392,8 +1977,9 @@ fun TaskNodeView(
                         color = MaterialTheme.colorScheme.tertiaryContainer,
                         shape = RoundedCornerShape(12.dp)
                     ) {
+                        // Standard ASCII pipe character used instead of Unicode bullet symbol
                         Text(
-                            text = "Layer $layerLevel â€¢ $layersBelow below",
+                            text = "Layer $layerLevel | $layersBelow below",
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
@@ -2581,6 +2167,7 @@ fun TaskNodeView(
                     }
                 }
 
+                // Row action buttons: Move and Copy are directly invoked here
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2614,6 +2201,9 @@ fun TaskNodeView(
                         }
                         IconButton(modifier = Modifier.size(30.dp), onClick = { onCopyTask(task) }) {
                             Icon(Icons.Default.ContentCopy, contentDescription = "Copy Task", modifier = Modifier.size(17.dp))
+                        }
+                        IconButton(modifier = Modifier.size(30.dp), onClick = { onSwapTaskRole(task) }) {
+                            Icon(Icons.Default.SwapVert, contentDescription = "Swap Role", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(17.dp))
                         }
                         IconButton(
                             modifier = Modifier.size(30.dp),
@@ -2651,67 +2241,8 @@ fun TaskNodeView(
                     onAddSubtask = onAddSubtask,
                     onOpenFullScreen = onOpenFullScreen,
                     onMoveTask = onMoveTask,
-                    onCopyTask = onCopyTask
-                )
-            }
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------------------
-// FULL SCREEN NOTES/DESCRIPTION DEDICATED EDITOR DIALOG
-// -----------------------------------------------------------------------------------------
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun FullScreenNotesEditorDialog(
-    initialNotes: String,
-    taskTitle: String,
-    onDismiss: () -> Unit,
-    onSaveNotes: (String) -> Unit
-) {
-    var editableNotes by remember { mutableStateOf(initialNotes) }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text("Notes: ${taskTitle.ifBlank { "Task" }}", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
-                        }
-                    },
-                    actions = {
-                        Button(
-                            onClick = {
-                                onSaveNotes(editableNotes)
-                                onDismiss()
-                            }
-                        ) {
-                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Done")
-                        }
-                    }
-                )
-            }
-        ) { paddingValues ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(16.dp)
-            ) {
-                OutlinedTextField(
-                    value = editableNotes,
-                    onValueChange = { editableNotes = it },
-                    placeholder = { Text("Write extensive descriptions, notes, ideas...") },
-                    modifier = Modifier.fillMaxSize()
+                    onCopyTask = onCopyTask,
+                    onSwapTaskRole = onSwapTaskRole
                 )
             }
         }
@@ -2726,16 +2257,15 @@ fun FullScreenNotesEditorDialog(
 fun FullScreenTaskWorkspaceDialog(
     initialTask: TaskItem,
     viewModel: TaskViewModel,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onMoveTask: (TaskItem) -> Unit,
+    onCopyTask: (TaskItem) -> Unit
 ) {
     var primaryTask by remember(initialTask.id) { mutableStateOf(initialTask) }
     var referencedTask by remember { mutableStateOf<TaskItem?>(null) }
     var selectedWorkspaceTab by remember { mutableIntStateOf(0) }
 
-    var taskForAdvancedTransfer by remember { mutableStateOf<Pair<TaskItem, Boolean>?>(null) }
-
     val allTasks by viewModel.allTasksFlow.collectAsState(initial = emptyList())
-    val context = LocalContext.current
 
     LaunchedEffect(allTasks, primaryTask.id) {
         val updated = allTasks.find { it.id == primaryTask.id }
@@ -2763,16 +2293,19 @@ fun FullScreenTaskWorkspaceDialog(
                 Column {
                     TopAppBar(
                         title = {
-                            Text(
-                                if (selectedWorkspaceTab == 0) primaryTask.title.ifBlank { "Task Workspace" }
-                                else "Referenced: ${referencedTask?.title ?: ""}",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            Text(if (selectedWorkspaceTab == 0) primaryTask.title.ifBlank { "Task Workspace" } else "Referenced: ${referencedTask?.title ?: ""}")
                         },
                         navigationIcon = {
                             IconButton(onClick = onDismiss) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Close")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { onMoveTask(if (selectedWorkspaceTab == 0) primaryTask else referencedTask!!) }) {
+                                Icon(Icons.Default.DriveFileMove, contentDescription = "Move")
+                            }
+                            IconButton(onClick = { onCopyTask(if (selectedWorkspaceTab == 0) primaryTask else referencedTask!!) }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
                             }
                         }
                     )
@@ -2810,9 +2343,6 @@ fun FullScreenTaskWorkspaceDialog(
                         SingleTaskEditorView(
                             task = primaryTask,
                             viewModel = viewModel,
-                            onDismiss = onDismiss,
-                            onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
-                            onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
                             onOpenReferencedCrossTab = { target ->
                                 referencedTask = target
                                 selectedWorkspaceTab = 1
@@ -2824,9 +2354,6 @@ fun FullScreenTaskWorkspaceDialog(
                         SingleTaskEditorView(
                             task = referencedTask!!,
                             viewModel = viewModel,
-                            onDismiss = { selectedWorkspaceTab = 0 },
-                            onMoveTask = { taskForAdvancedTransfer = Pair(it, false) },
-                            onCopyTask = { taskForAdvancedTransfer = Pair(it, true) },
                             onOpenReferencedCrossTab = { nextTarget ->
                                 referencedTask = nextTarget
                             }
@@ -2835,28 +2362,17 @@ fun FullScreenTaskWorkspaceDialog(
                 }
             }
         }
-
-        taskForAdvancedTransfer?.let { (task, isCopy) ->
-            AdvancedTaskTransferDialog(
-                task = task,
-                isCopy = isCopy,
-                viewModel = viewModel,
-                onDismiss = { taskForAdvancedTransfer = null }
-            )
-        }
     }
 }
+
 // -----------------------------------------------------------------------------------------
-// SINGLE TASK EDITOR VIEW
+// SINGLE TASK EDITOR VIEW (UNICODE CHECKMARKS & SPECIAL CHARACTERS CLEANED)
 // -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SingleTaskEditorView(
     task: TaskItem,
     viewModel: TaskViewModel,
-    onDismiss: () -> Unit,
-    onMoveTask: (TaskItem) -> Unit,
-    onCopyTask: (TaskItem) -> Unit,
     onOpenReferencedCrossTab: (TaskItem) -> Unit
 ) {
     val context = LocalContext.current
@@ -2893,14 +2409,8 @@ fun SingleTaskEditorView(
     var manualPhone by remember { mutableStateOf("") }
     var manualContactName by remember { mutableStateOf("") }
 
-    var showDeleteConfirm by remember { mutableStateOf(false) }
     var itemPendingDeleteChecklist by remember { mutableStateOf<ChecklistItem?>(null) }
-
-    var selectedAttachmentIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var isAttachmentSelectionMode by remember { mutableStateOf(false) }
-    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
-
-    var showFullScreenNotesDialog by remember { mutableStateOf(false) }
+    var itemPendingDeleteAttachment by remember { mutableStateOf<RichAttachment?>(null) }
 
     val liveChecklist by viewModel.getChecklist(task.id).collectAsState(initial = emptyList())
     val liveAttachments by viewModel.getAttachments(task.id).collectAsState(initial = emptyList())
@@ -2963,30 +2473,6 @@ fun SingleTaskEditorView(
         }
     }
 
-    if (showFullScreenNotesDialog) {
-        FullScreenNotesEditorDialog(
-            initialNotes = notes,
-            taskTitle = title,
-            onDismiss = { showFullScreenNotesDialog = false },
-            onSaveNotes = { updatedNotes ->
-                notes = updatedNotes
-            }
-        )
-    }
-
-    if (showDeleteConfirm) {
-        DeleteConfirmationDialog(
-            title = "Delete Task?",
-            message = "Are you sure you want to delete '${task.title.ifBlank { "this task" }}'? All subtasks, checklists, attachments, and calendar events will also be removed.",
-            onConfirm = {
-                viewModel.deleteTask(task)
-                showDeleteConfirm = false
-                onDismiss()
-            },
-            onDismiss = { showDeleteConfirm = false }
-        )
-    }
-
     if (itemPendingDeleteChecklist != null) {
         DeleteConfirmationDialog(
             title = "Delete Checklist Item?",
@@ -2999,18 +2485,15 @@ fun SingleTaskEditorView(
         )
     }
 
-    if (showBatchDeleteConfirm) {
+    if (itemPendingDeleteAttachment != null) {
         DeleteConfirmationDialog(
-            title = "Delete ${selectedAttachmentIds.size} Attachment(s)?",
-            message = "Are you sure you want to delete the ${selectedAttachmentIds.size} selected attachments permanently?",
+            title = "Delete Attachment?",
+            message = "Are you sure you want to remove '${itemPendingDeleteAttachment?.displayName}'?",
             onConfirm = {
-                val toDelete = liveAttachments.filter { it.id in selectedAttachmentIds }
-                viewModel.deleteAttachmentsBatch(toDelete)
-                selectedAttachmentIds = emptySet()
-                isAttachmentSelectionMode = false
-                showBatchDeleteConfirm = false
+                itemPendingDeleteAttachment?.let { viewModel.deleteAttachment(it) }
+                itemPendingDeleteAttachment = null
             },
-            onDismiss = { showBatchDeleteConfirm = false }
+            onDismiss = { itemPendingDeleteAttachment = null }
         )
     }
 
@@ -3082,1255 +2565,923 @@ fun SingleTaskEditorView(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Surface(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-            shadowElevation = 4.dp
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(
+                    onClick = { viewModel.shareTaskData(context, task.id) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Share")
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.shareTaskData(context, task.id, targetPackage = "com.whatsapp") }
+                ) {
+                    Text("WhatsApp")
+                }
+            }
+
+            Button(
+                onClick = {
+                    val days = repeatDaysText.toIntOrNull() ?: 0
+                    val hours = repeatHoursText.toIntOrNull() ?: 0
+                    val minutes = repeatMinutesText.toIntOrNull() ?: 0
+
+                    viewModel.saveTask(
+                        task = task,
+                        title = title,
+                        notes = notes,
+                        tags = tagsText,
+                        priority = priority,
+                        createdTimestampMs = createdMs,
+                        reminderEpochMs = reminderMs,
+                        dueEpochMs = dueMs,
+                        repeatRule = repeatRule,
+                        repeatIntervalDays = days,
+                        repeatIntervalHours = hours,
+                        repeatIntervalMinutes = minutes,
+                        repeatStartDate = repeatStartDate,
+                        repeatStartTimeMs = repeatStartTimeMs,
+                        repeatEndTimeMs = repeatEndTimeMs,
+                        linkedTaskIds = task.linkedTaskIds,
+                        locationName = locationName.ifBlank { null },
+                        latitude = latitude,
+                        longitude = longitude
+                    )
+                    Toast.makeText(context, "Saved changes", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Save")
+            }
+        }
+
+        TaskMetadataStatusRow(
+            isCompleted = task.isCompleted,
+            completedTimestamp = task.completedTimestamp,
+            lastModifiedTimestamp = task.lastModifiedTimestamp,
+            dueTimestamp = dueMs,
+            reminderTimestamp = reminderMs,
+            repeatRule = repeatRule,
+            repeatIntervalDays = repeatDaysText.toIntOrNull() ?: 0,
+            repeatIntervalHours = repeatHoursText.toIntOrNull() ?: 0,
+            repeatIntervalMinutes = repeatMinutesText.toIntOrNull() ?: 0
+        )
+
+        if (task.isCompleted) {
+            val doneDate = task.completedTimestamp ?: task.lastModifiedTimestamp
+            Surface(
+                color = Color(0xFFE8F5E9),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(
-                        onClick = {
-                            val days = repeatDaysText.toIntOrNull() ?: 0
-                            val hours = repeatHoursText.toIntOrNull() ?: 0
-                            val minutes = repeatMinutesText.toIntOrNull() ?: 0
-
-                            viewModel.saveTask(
-                                task = task,
-                                title = title,
-                                notes = notes,
-                                tags = tagsText,
-                                priority = priority,
-                                createdTimestampMs = createdMs,
-                                reminderEpochMs = reminderMs,
-                                dueEpochMs = dueMs,
-                                repeatRule = repeatRule,
-                                repeatIntervalDays = days,
-                                repeatIntervalHours = hours,
-                                repeatIntervalMinutes = minutes,
-                                repeatStartDate = repeatStartDate,
-                                repeatStartTimeMs = repeatStartTimeMs,
-                                repeatEndTimeMs = repeatEndTimeMs,
-                                linkedTaskIds = task.linkedTaskIds,
-                                locationName = locationName.ifBlank { null },
-                                latitude = latitude,
-                                longitude = longitude
-                            )
-                            Toast.makeText(context, "Saved changes âœ“", Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Save")
-                    }
-
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Cancel")
-                    }
-
-                    FilledTonalButton(
-                        onClick = { viewModel.shareTaskData(context, task.id) },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Share")
-                    }
-
-                    OutlinedButton(
-                        onClick = { viewModel.shareTaskData(context, task.id, targetPackage = "com.whatsapp") },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Text("WhatsApp")
-                    }
-
-                    FilledTonalButton(
-                        onClick = { onMoveTask(task) },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.DriveFileMove, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Move")
-                    }
-
-                    FilledTonalButton(
-                        onClick = { onCopyTask(task) },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Copy")
-                    }
-
-                    Button(
-                        onClick = { showDeleteConfirm = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                    ) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Delete")
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    PriorityBadge(priority)
-
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.CalendarToday, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.outline)
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = "Created: ${fullDateTimeFormat.format(Date(createdMs))}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                TaskMetadataStatusRow(
-                    isCompleted = task.isCompleted,
-                    completedTimestamp = task.completedTimestamp,
-                    lastModifiedTimestamp = task.lastModifiedTimestamp,
-                    dueTimestamp = dueMs,
-                    reminderTimestamp = reminderMs,
-                    repeatRule = repeatRule,
-                    repeatIntervalDays = repeatDaysText.toIntOrNull() ?: 0,
-                    repeatIntervalHours = repeatHoursText.toIntOrNull() ?: 0,
-                    repeatIntervalMinutes = repeatMinutesText.toIntOrNull() ?: 0
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (locationName.isNotBlank() || latitude != null) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier.clickable {
-                                if (latitude != null && longitude != null) {
-                                    LocationAndContactHelper.openInMap(context, latitude!!, longitude!!, locationName)
-                                }
-                            }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(13.dp))
-                                Spacer(Modifier.width(3.dp))
-                                Text(
-                                    text = locationName.ifBlank { "GPS: ${String.format(Locale.US, "%.3f, %.3f", latitude, longitude)}" },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-
-                    if (tagsText.isNotBlank()) {
-                        tagsText.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { tag ->
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text(
-                                    text = "#$tag",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    if (liveChecklist.isNotEmpty()) {
-                        val doneCount = liveChecklist.count { it.isDone }
-                        Surface(
-                            color = if (doneCount == liveChecklist.size) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.outline)
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    text = "Checklist: $doneCount/${liveChecklist.size}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-
-                    if (liveAttachments.isNotEmpty()) {
-                        val filesCount = liveAttachments.count { it.type == AttachmentType.FILE || it.type == AttachmentType.IMAGE }
-                        val audiosCount = liveAttachments.count { it.type == AttachmentType.AUDIO }
-                        val videosCount = liveAttachments.count { it.type == AttachmentType.VIDEO }
-                        val contactsCount = liveAttachments.count { it.type == AttachmentType.CONTACT }
-
-                        Surface(
-                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(13.dp), tint = MaterialTheme.colorScheme.secondary)
-                                Spacer(Modifier.width(3.dp))
-                                val summaryParts = mutableListOf<String>()
-                                if (filesCount > 0) summaryParts.add("$filesCount files")
-                                if (audiosCount > 0) summaryParts.add("$audiosCount audio")
-                                if (videosCount > 0) summaryParts.add("$videosCount video")
-                                if (contactsCount > 0) summaryParts.add("$contactsCount contacts")
-                                Text(
-                                    text = summaryParts.joinToString(", "),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Task Completed: ${fullDateTimeFormat.format(Date(doneDate))}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        OutlinedTextField(
+            value = title,
+            onValueChange = { title = it },
+            label = { Text("Task Title *") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
         ) {
-            if (task.isCompleted) {
-                val doneDate = task.completedTimestamp ?: task.lastModifiedTimestamp
-                Surface(
-                    color = Color(0xFFE8F5E9),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "Task Completed: ${fullDateTimeFormat.format(Date(doneDate))}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF2E7D32),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
-            OutlinedTextField(
-                value = title,
-                onValueChange = { title = it },
-                label = { Text("Task Title *") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Description & Notes", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                    TextButton(
-                        onClick = { showFullScreenNotesDialog = true }
-                    ) {
-                        Icon(Icons.Default.OpenInFull, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Open Full Screen Notes")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Task Location", fontWeight = FontWeight.Bold)
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FilledTonalButton(
+                            enabled = !isResolvingLocation,
+                            onClick = {
+                                locationPermissionLauncher.launch(
+                                    arrayOf(
+                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                    )
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            if (isResolvingLocation) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Finding place...", style = MaterialTheme.typography.labelSmall)
+                            } else {
+                                Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Pin GPS", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+
+                        if (latitude != null && longitude != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    LocationAndContactHelper.openInMap(
+                                        context,
+                                        latitude!!,
+                                        longitude!!,
+                                        locationName.ifBlank { null }
+                                    )
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Map", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
 
                 OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    placeholder = { Text("Add notes, descriptions, links...") },
-                    minLines = 4,
-                    maxLines = 10,
-                    modifier = Modifier.fillMaxWidth()
+                    value = locationName,
+                    onValueChange = { locationName = it },
+                    label = { Text("Location Name / Place") },
+                    placeholder = { Text("e.g. Office, Starbucks, Campus Hall B") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    trailingIcon = {
+                        if (locationName.isNotEmpty() || latitude != null) {
+                            IconButton(onClick = {
+                                locationName = ""
+                                latitude = null
+                                longitude = null
+                            }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear Location")
+                            }
+                        }
+                    }
+                )
+
+                if (latitude != null && longitude != null) {
+                    Text(
+                        text = "GPS Coordinates: ${String.format(Locale.US, "%.5f", latitude)}, ${String.format(Locale.US, "%.5f", longitude)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = tagsText,
+            onValueChange = { tagsText = it },
+            label = { Text("Tags (comma separated)") },
+            placeholder = { Text("e.g. work, shopping, urgent") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+        ) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Scheduled / Created Time", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    OutlinedButton(
+                        onClick = {
+                            val cal = Calendar.getInstance().apply { timeInMillis = createdMs }
+                            DatePickerDialog(context, { _, y, m, d ->
+                                TimePickerDialog(context, { _, h, min ->
+                                    cal.set(y, m, d, h, min, 0)
+                                    createdMs = cal.timeInMillis
+                                }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
+                            }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                        }
+                    ) {
+                        Icon(Icons.Default.EditCalendar, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(fullDateTimeFormat.format(Date(createdMs)))
+                    }
+                }
+                Text(
+                    text = "Modified: ${fullDateTimeFormat.format(Date(task.lastModifiedTimestamp))}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
                 )
             }
+        }
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Priority Level:", fontWeight = FontWeight.SemiBold)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.LocationOn, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Task Location", fontWeight = FontWeight.Bold)
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            FilledTonalButton(
-                                enabled = !isResolvingLocation,
-                                onClick = {
-                                    locationPermissionLauncher.launch(
-                                        arrayOf(
-                                            Manifest.permission.ACCESS_FINE_LOCATION,
-                                            Manifest.permission.ACCESS_COARSE_LOCATION
-                                        )
-                                    )
-                                },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                if (isResolvingLocation) {
-                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Finding place...", style = MaterialTheme.typography.labelSmall)
-                                } else {
-                                    Icon(Icons.Default.MyLocation, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Pin GPS", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-
-                            if (latitude != null && longitude != null) {
-                                OutlinedButton(
-                                    onClick = {
-                                        LocationAndContactHelper.openInMap(
-                                            context,
-                                            latitude!!,
-                                            longitude!!,
-                                            locationName.ifBlank { null }
-                                        )
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Map", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                    }
-
-                    OutlinedTextField(
-                        value = locationName,
-                        onValueChange = { locationName = it },
-                        label = { Text("Location Name / Place") },
-                        placeholder = { Text("e.g. Office, Starbucks, Campus Hall B") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        trailingIcon = {
-                            if (locationName.isNotEmpty() || latitude != null) {
-                                IconButton(onClick = {
-                                    locationName = ""
-                                    latitude = null
-                                    longitude = null
-                                }) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Clear Location")
-                                }
-                            }
-                        }
+                TaskPriority.values().forEach { p ->
+                    FilterChip(
+                        selected = priority == p,
+                        onClick = { priority = p },
+                        label = { Text(p.name, fontWeight = FontWeight.Bold) },
+                        colors = if (p == TaskPriority.URGENT) {
+                            FilterChipDefaults.filterChipColors(
+                                containerColor = if (priority == p) Color(0xFFD32F2F) else Color(0xFFFFEBEE),
+                                labelColor = if (priority == p) Color.White else Color(0xFFD32F2F)
+                            )
+                        } else FilterChipDefaults.filterChipColors()
                     )
-
-                    if (latitude != null && longitude != null) {
-                        Text(
-                            text = "GPS Coordinates: ${String.format(Locale.US, "%.5f", latitude)}, ${String.format(Locale.US, "%.5f", longitude)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
                 }
             }
+        }
 
-            OutlinedTextField(
-                value = tagsText,
-                onValueChange = { tagsText = it },
-                label = { Text("Tags (comma separated)") },
-                placeholder = { Text("e.g. work, shopping, urgent") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
+        OutlinedTextField(
+            value = notes,
+            onValueChange = { notes = it },
+            label = { Text("Description & Notes") },
+            minLines = 4,
+            maxLines = 10,
+            modifier = Modifier.fillMaxWidth()
+        )
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-            ) {
-                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Scheduled / Created Time", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Schedule & Due Dates", fontWeight = FontWeight.Bold)
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(
                             onClick = {
-                                val cal = Calendar.getInstance().apply { timeInMillis = createdMs }
+                                val cal = Calendar.getInstance()
                                 DatePickerDialog(context, { _, y, m, d ->
                                     TimePickerDialog(context, { _, h, min ->
-                                        cal.set(y, m, d, h, min, 0)
-                                        createdMs = cal.timeInMillis
+                                        cal.set(y, m, d, h, min)
+                                        reminderMs = cal.timeInMillis
                                     }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
                                 }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
-                            }
+                            },
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Icon(Icons.Default.EditCalendar, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text(fullDateTimeFormat.format(Date(createdMs)))
+                            Text(reminderMs?.let { "Remind: ${dateFormat.format(Date(it))}" } ?: "Set Reminder", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (reminderMs != null) {
+                            IconButton(onClick = { reminderMs = null }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Clear, contentDescription = "Cancel Reminder", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            }
                         }
                     }
-                    Text(
-                        text = "Modified: ${fullDateTimeFormat.format(Date(task.lastModifiedTimestamp))}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
-            }
 
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Priority Level:", fontWeight = FontWeight.SemiBold)
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = {
+                                val cal = Calendar.getInstance()
+                                DatePickerDialog(context, { _, y, m, d ->
+                                    TimePickerDialog(context, { _, h, min ->
+                                        cal.set(y, m, d, h, min)
+                                        dueMs = cal.timeInMillis
+                                    }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
+                                }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(dueMs?.let { "Due: ${dateFormat.format(Date(it))}" } ?: "Set Due Date", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (dueMs != null) {
+                            IconButton(onClick = { dueMs = null }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Clear, contentDescription = "Cancel Due Date", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TaskPriority.values().forEach { p ->
+                    Text("Repeat Configuration", fontWeight = FontWeight.Bold)
+                    if (repeatRule != RecurrenceRule.NONE) {
+                        TextButton(onClick = {
+                            repeatRule = RecurrenceRule.NONE
+                            repeatDaysText = "0"
+                            repeatHoursText = "0"
+                            repeatMinutesText = "0"
+                        }) {
+                            Text("Cancel Repeat", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    RecurrenceRule.values().forEach { rule ->
+                        val ruleLabel = when (rule) {
+                            RecurrenceRule.NONE -> "None"
+                            RecurrenceRule.DAILY -> "Daily"
+                            RecurrenceRule.WEEKLY -> "Weekly"
+                            RecurrenceRule.FORTNIGHTLY -> "Fortnightly"
+                            RecurrenceRule.MONTHLY -> "Monthly"
+                            RecurrenceRule.SIX_MONTHLY -> "Six Monthly"
+                            RecurrenceRule.YEARLY -> "Yearly"
+                            RecurrenceRule.CUSTOM -> "Custom"
+                        }
                         FilterChip(
-                            selected = priority == p,
-                            onClick = { priority = p },
-                            label = {
-                                if (p == TaskPriority.URGENT) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Whatshot, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(Modifier.width(4.dp))
-                                        Text("ðŸ”¥ URGENT", fontWeight = FontWeight.ExtraBold)
-                                    }
-                                } else {
-                                    Text(p.name, fontWeight = FontWeight.Bold)
+                            selected = repeatRule == rule,
+                            onClick = {
+                                repeatRule = rule
+                                when (rule) {
+                                    RecurrenceRule.NONE -> { repeatDaysText = "0"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.DAILY -> { repeatDaysText = "1"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.WEEKLY -> { repeatDaysText = "7"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.FORTNIGHTLY -> { repeatDaysText = "14"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.MONTHLY -> { repeatDaysText = "30"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.SIX_MONTHLY -> { repeatDaysText = "180"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    RecurrenceRule.YEARLY -> { repeatDaysText = "365"; repeatHoursText = "0"; repeatMinutesText = "0" }
+                                    else -> {}
                                 }
                             },
-                            colors = if (p == TaskPriority.URGENT) {
-                                FilterChipDefaults.filterChipColors(
-                                    containerColor = if (priority == p) Color(0xFFD32F2F) else Color(0xFFFFEBEE),
-                                    labelColor = if (priority == p) Color.White else Color(0xFFD32F2F)
-                                )
-                            } else FilterChipDefaults.filterChipColors()
+                            label = { Text(ruleLabel) }
                         )
                     }
                 }
-            }
 
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Schedule & Due Dates", fontWeight = FontWeight.Bold)
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton(
-                                onClick = {
-                                    val cal = Calendar.getInstance()
-                                    DatePickerDialog(context, { _, y, m, d ->
-                                        TimePickerDialog(context, { _, h, min ->
-                                            cal.set(y, m, d, h, min)
-                                            reminderMs = cal.timeInMillis
-                                        }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
-                                    }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(reminderMs?.let { "Remind: ${dateFormat.format(Date(it))}" } ?: "Set Reminder", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            if (reminderMs != null) {
-                                IconButton(onClick = { reminderMs = null }, modifier = Modifier.size(28.dp)) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Cancel Reminder", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-
-                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton(
-                                onClick = {
-                                    val cal = Calendar.getInstance()
-                                    DatePickerDialog(context, { _, y, m, d ->
-                                        TimePickerDialog(context, { _, h, min ->
-                                            cal.set(y, m, d, h, min)
-                                            dueMs = cal.timeInMillis
-                                        }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
-                                    }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show()
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(dueMs?.let { "Due: ${dateFormat.format(Date(it))}" } ?: "Set Due Date", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            if (dueMs != null) {
-                                IconButton(onClick = { dueMs = null }, modifier = Modifier.size(28.dp)) {
-                                    Icon(Icons.Default.Clear, contentDescription = "Cancel Due Date", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider()
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                if (repeatRule != RecurrenceRule.NONE) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Repeat Configuration", fontWeight = FontWeight.Bold)
-                        if (repeatRule != RecurrenceRule.NONE) {
-                            TextButton(onClick = {
-                                repeatRule = RecurrenceRule.NONE
-                                repeatDaysText = "0"
-                                repeatHoursText = "0"
-                                repeatMinutesText = "0"
-                            }) {
-                                Text("Cancel Repeat", color = MaterialTheme.colorScheme.error)
+                        Text("Interval Duration:", fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Days:")
+                            OutlinedTextField(
+                                value = repeatDaysText,
+                                onValueChange = { input -> repeatDaysText = input.filter { it.isDigit() } },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(64.dp),
+                                singleLine = true
+                            )
+                            Text("Hrs:")
+                            OutlinedTextField(
+                                value = repeatHoursText,
+                                onValueChange = { input -> repeatHoursText = input.filter { it.isDigit() } },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(64.dp),
+                                singleLine = true
+                            )
+                            Text("Min:")
+                            OutlinedTextField(
+                                value = repeatMinutesText,
+                                onValueChange = { input -> repeatMinutesText = input.filter { it.isDigit() } },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                modifier = Modifier.width(64.dp),
+                                singleLine = true
+                            )
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val c = Calendar.getInstance().apply { repeatStartTimeMs?.let { timeInMillis = it } }
+                                    TimePickerDialog(context, { _, h, min ->
+                                        c.set(Calendar.HOUR_OF_DAY, h)
+                                        c.set(Calendar.MINUTE, min)
+                                        repeatStartTimeMs = c.timeInMillis
+                                    }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), false).show()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(repeatStartTimeMs?.let { "Start: ${timeFormat.format(Date(it))}" } ?: "Start time")
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    val c = Calendar.getInstance().apply { repeatEndTimeMs?.let { timeInMillis = it } }
+                                    TimePickerDialog(context, { _, h, min ->
+                                        c.set(Calendar.HOUR_OF_DAY, h)
+                                        c.set(Calendar.MINUTE, min)
+                                        repeatEndTimeMs = c.timeInMillis
+                                    }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), false).show()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(repeatEndTimeMs?.let { "End: ${timeFormat.format(Date(it))}" } ?: "End time")
                             }
                         }
+
+                        OutlinedButton(
+                            onClick = {
+                                val c = Calendar.getInstance().apply { repeatStartDate?.let { timeInMillis = it } }
+                                DatePickerDialog(context, { _, y, m, d ->
+                                    c.set(y, m, d, 0, 0, 0)
+                                    repeatStartDate = c.timeInMillis
+                                }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(repeatStartDate?.let { "Start date: [${dateFormat.format(Date(it))}]" } ?: "Set start date")
+                        }
+
+                        Button(
+                            onClick = {
+                                val days = repeatDaysText.toIntOrNull() ?: 0
+                                val hours = repeatHoursText.toIntOrNull() ?: 0
+                                val minutes = repeatMinutesText.toIntOrNull() ?: 0
+
+                                viewModel.saveTask(
+                                    task = task,
+                                    title = title,
+                                    notes = notes,
+                                    tags = tagsText,
+                                    priority = priority,
+                                    createdTimestampMs = createdMs,
+                                    reminderEpochMs = reminderMs,
+                                    dueEpochMs = dueMs,
+                                    repeatRule = repeatRule,
+                                    repeatIntervalDays = days,
+                                    repeatIntervalHours = hours,
+                                    repeatIntervalMinutes = minutes,
+                                    repeatStartDate = repeatStartDate,
+                                    repeatStartTimeMs = repeatStartTimeMs,
+                                    repeatEndTimeMs = repeatEndTimeMs,
+                                    linkedTaskIds = task.linkedTaskIds,
+                                    locationName = locationName.ifBlank { null },
+                                    latitude = latitude,
+                                    longitude = longitude
+                                )
+                                Toast.makeText(context, "Repeat pattern applied", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Set / Apply Repeat Pattern")
+                        }
+                    }
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Cross-Task Linking (Bidirectional)", fontWeight = FontWeight.Bold)
+
+                var showLinkDropdown by remember { mutableStateOf(false) }
+                val otherTasks = remember(allTasks, task.id) { allTasks.filter { it.id != task.id } }
+
+                Box {
+                    OutlinedButton(onClick = { showLinkDropdown = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.AddLink, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Link with another task...")
                     }
 
+                    DropdownMenu(
+                        expanded = showLinkDropdown,
+                        onDismissRequest = { showLinkDropdown = false }
+                    ) {
+                        otherTasks.forEach { other ->
+                            DropdownMenuItem(
+                                text = { Text(other.title.ifBlank { "Task #${other.id}" }) },
+                                onClick = {
+                                    viewModel.linkTasksBidirectional(task.id, other.id)
+                                    showLinkDropdown = false
+                                }
+                            )
+                        }
+                    }
+                }
+
+                val liveLinkedIds = remember(task.linkedTaskIds) {
+                    task.linkedTaskIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() } ?: emptyList()
+                }
+
+                if (liveLinkedIds.isNotEmpty()) {
+                    Text("Linked Tasks:", style = MaterialTheme.typography.labelMedium)
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        RecurrenceRule.values().forEach { rule ->
-                            val ruleLabel = when (rule) {
-                                RecurrenceRule.NONE -> "None"
-                                RecurrenceRule.DAILY -> "Daily"
-                                RecurrenceRule.WEEKLY -> "Weekly"
-                                RecurrenceRule.FORTNIGHTLY -> "Fortnightly"
-                                RecurrenceRule.MONTHLY -> "Monthly"
-                                RecurrenceRule.SIX_MONTHLY -> "Six Monthly"
-                                RecurrenceRule.YEARLY -> "Yearly"
-                                RecurrenceRule.CUSTOM -> "Custom"
-                            }
-                            FilterChip(
-                                selected = repeatRule == rule,
+                        liveLinkedIds.forEach { id ->
+                            val linkedTask = allTasks.find { it.id == id }
+                            AssistChip(
                                 onClick = {
-                                    repeatRule = rule
-                                    when (rule) {
-                                        RecurrenceRule.NONE -> { repeatDaysText = "0"; repeatHoursText = "0"; repeatMinutesText = "0" }
-                                        RecurrenceRule.DAILY -> { repeatDaysText = "1"; repeatHoursText = "0"; repeatMinutesText = "0" }
-                                        RecurrenceRule.WEEKLY -> { repeatDaysText = "7"; repeatHoursText = "0"; repeatMinutesText = "0" }
-                                        RecurrenceRule.FORTNIGHTLY -> { repeatDaysText = "14"; repeatHoursText = "0"; repeatMinutesText = "0" }
-                                        RecurrenceRule.MONTHLY -> { repeatDaysText = "30"; repeatHoursText = "0"; repeatMinutesText = "0" }
-                                        RecurrenceRule.SIX_MONTHLY -> { repeatDaysText = "180"; repeatHoursText = "0"; repeatMinutesText = "0" }
-                                        RecurrenceRule.YEARLY -> { repeatDaysText = "365"; repeatHoursText = "0"; repeatMinutesText = "0" }
-                                        else -> {}
+                                    scope.launch {
+                                        val target = viewModel.getTaskById(id)
+                                        if (target != null) {
+                                            onOpenReferencedCrossTab(target)
+                                        } else {
+                                            Toast.makeText(context, "Linked task not found", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 },
-                                label = { Text(ruleLabel) }
+                                leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                label = {
+                                    Text(
+                                        text = "${linkedTask?.title ?: "Task #$id"} ->",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        textDecoration = TextDecoration.Underline,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                trailingIcon = {
+                                    IconButton(modifier = Modifier.size(16.dp), onClick = {
+                                        viewModel.unlinkTasksBidirectional(task.id, id)
+                                    }) {
+                                        Icon(Icons.Default.Clear, contentDescription = "Unlink")
+                                    }
+                                }
                             )
                         }
                     }
+                }
+            }
+        }
 
-                    if (repeatRule != RecurrenceRule.NONE) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
+
+                liveChecklist.forEach { item ->
+                    var isRenamingTitle by remember { mutableStateOf(false) }
+                    var renameTitleText by remember(item.text) { mutableStateOf(item.text) }
+                    var isNoteExpanded by remember { mutableStateOf(false) }
+                    var itemNoteText by remember(item.notes) { mutableStateOf(item.notes ?: "") }
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                .padding(10.dp),
+                                .padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("Interval Duration:", fontWeight = FontWeight.SemiBold)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Days:")
-                                OutlinedTextField(
-                                    value = repeatDaysText,
-                                    onValueChange = { input -> repeatDaysText = input.filter { it.isDigit() } },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(64.dp),
-                                    singleLine = true
+                                Checkbox(
+                                    checked = item.isDone,
+                                    onCheckedChange = { viewModel.toggleChecklistItem(item) },
+                                    modifier = Modifier.size(32.dp)
                                 )
-                                Text("Hrs:")
-                                OutlinedTextField(
-                                    value = repeatHoursText,
-                                    onValueChange = { input -> repeatHoursText = input.filter { it.isDigit() } },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(64.dp),
-                                    singleLine = true
-                                )
-                                Text("Min:")
-                                OutlinedTextField(
-                                    value = repeatMinutesText,
-                                    onValueChange = { input -> repeatMinutesText = input.filter { it.isDigit() } },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.width(64.dp),
-                                    singleLine = true
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = item.text,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { isRenamingTitle = !isRenamingTitle }
                                 )
                             }
 
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(
-                                    onClick = {
-                                        val c = Calendar.getInstance().apply { repeatStartTimeMs?.let { timeInMillis = it } }
-                                        TimePickerDialog(context, { _, h, min ->
-                                            c.set(Calendar.HOUR_OF_DAY, h)
-                                            c.set(Calendar.MINUTE, min)
-                                            repeatStartTimeMs = c.timeInMillis
-                                        }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), false).show()
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(repeatStartTimeMs?.let { "Start: ${timeFormat.format(Date(it))}" } ?: "Start time")
-                                }
-
-                                OutlinedButton(
-                                    onClick = {
-                                        val c = Calendar.getInstance().apply { repeatEndTimeMs?.let { timeInMillis = it } }
-                                        TimePickerDialog(context, { _, h, min ->
-                                            c.set(Calendar.HOUR_OF_DAY, h)
-                                            c.set(Calendar.MINUTE, min)
-                                            repeatEndTimeMs = c.timeInMillis
-                                        }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), false).show()
-                                    },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(repeatEndTimeMs?.let { "End: ${timeFormat.format(Date(it))}" } ?: "End time")
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    val c = Calendar.getInstance().apply { repeatStartDate?.let { timeInMillis = it } }
-                                    DatePickerDialog(context, { _, y, m, d ->
-                                        c.set(y, m, d, 0, 0, 0)
-                                        repeatStartDate = c.timeInMillis
-                                    }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(repeatStartDate?.let { "Start date: [${dateFormat.format(Date(it))}]" } ?: "Set start date")
-                            }
-
-                            Button(
-                                onClick = {
-                                    val days = repeatDaysText.toIntOrNull() ?: 0
-                                    val hours = repeatHoursText.toIntOrNull() ?: 0
-                                    val minutes = repeatMinutesText.toIntOrNull() ?: 0
-
-                                    viewModel.saveTask(
-                                        task = task,
-                                        title = title,
-                                        notes = notes,
-                                        tags = tagsText,
-                                        priority = priority,
-                                        createdTimestampMs = createdMs,
-                                        reminderEpochMs = reminderMs,
-                                        dueEpochMs = dueMs,
-                                        repeatRule = repeatRule,
-                                        repeatIntervalDays = days,
-                                        repeatIntervalHours = hours,
-                                        repeatIntervalMinutes = minutes,
-                                        repeatStartDate = repeatStartDate,
-                                        repeatStartTimeMs = repeatStartTimeMs,
-                                        repeatEndTimeMs = repeatEndTimeMs,
-                                        linkedTaskIds = task.linkedTaskIds,
-                                        locationName = locationName.ifBlank { null },
-                                        latitude = latitude,
-                                        longitude = longitude
-                                    )
-                                    Toast.makeText(context, "Repeat pattern applied âœ“", Toast.LENGTH_SHORT).show()
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Default.Repeat, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text("Set / Apply Repeat Pattern")
-                            }
-                        }
-                    }
-                }
-            }
-
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Cross-Task Linking (Bidirectional)", fontWeight = FontWeight.Bold)
-
-                    var showLinkDropdown by remember { mutableStateOf(false) }
-                    val otherTasks = remember(allTasks, task.id) { allTasks.filter { it.id != task.id } }
-
-                    Box {
-                        OutlinedButton(onClick = { showLinkDropdown = true }, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Default.AddLink, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Link with another task...")
-                        }
-
-                        DropdownMenu(
-                            expanded = showLinkDropdown,
-                            onDismissRequest = { showLinkDropdown = false }
-                        ) {
-                            otherTasks.forEach { other ->
-                                DropdownMenuItem(
-                                    text = { Text(other.title.ifBlank { "Task #${other.id}" }) },
-                                    onClick = {
-                                        viewModel.linkTasksBidirectional(task.id, other.id)
-                                        showLinkDropdown = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    val liveLinkedIds = remember(task.linkedTaskIds) {
-                        task.linkedTaskIds?.split(",")?.mapNotNull { it.trim().toLongOrNull() } ?: emptyList()
-                    }
-
-                    if (liveLinkedIds.isNotEmpty()) {
-                        Text("Linked Tasks:", style = MaterialTheme.typography.labelMedium)
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            liveLinkedIds.forEach { id ->
-                                val linkedTask = allTasks.find { it.id == id }
-                                AssistChip(
-                                    onClick = {
-                                        scope.launch {
-                                            val target = viewModel.getTaskById(id)
-                                            if (target != null) {
-                                                onOpenReferencedCrossTab(target)
-                                            } else {
-                                                Toast.makeText(context, "Linked task not found", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Link, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                                    label = {
-                                        Text(
-                                            text = "${linkedTask?.title ?: "Task #$id"} âž”",
-                                            color = MaterialTheme.colorScheme.primary,
-                                            textDecoration = TextDecoration.Underline,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    },
-                                    trailingIcon = {
-                                        IconButton(modifier = Modifier.size(16.dp), onClick = {
-                                            viewModel.unlinkTasksBidirectional(task.id, id)
-                                        }) {
-                                            Icon(Icons.Default.Clear, contentDescription = "Unlink")
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Checklists (${liveChecklist.size})", fontWeight = FontWeight.Bold)
-
-                    liveChecklist.forEach { item ->
-                        var isRenamingTitle by remember { mutableStateOf(false) }
-                        var renameTitleText by remember(item.text) { mutableStateOf(item.text) }
-                        var isNoteExpanded by remember { mutableStateOf(false) }
-                        var itemNoteText by remember(item.notes) { mutableStateOf(item.notes ?: "") }
-
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = item.isDone,
-                                        onCheckedChange = { viewModel.toggleChecklistItem(item) },
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        text = item.text,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        textDecoration = if (item.isDone) TextDecoration.LineThrough else null,
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clickable { isRenamingTitle = !isRenamingTitle }
-                                    )
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.createdTimestamp))}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-
-                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { isRenamingTitle = !isRenamingTitle }) {
-                                            Icon(Icons.Default.Edit, contentDescription = "Edit Text", modifier = Modifier.size(18.dp))
-                                        }
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { isNoteExpanded = !isNoteExpanded }) {
-                                            Icon(
-                                                Icons.Default.NoteAlt,
-                                                contentDescription = "Note",
-                                                tint = if (!item.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                            )
-                                        }
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveChecklistItem(item, true) }) {
-                                            Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
-                                        }
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveChecklistItem(item, false) }) {
-                                            Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
-                                        }
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { itemPendingDeleteChecklist = item }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-                                }
-
-                                AnimatedVisibility(visible = isRenamingTitle) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
-                                            .padding(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        OutlinedTextField(
-                                            value = renameTitleText,
-                                            onValueChange = { renameTitleText = it },
-                                            label = { Text("Edit Checklist Name") },
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                            TextButton(onClick = { isRenamingTitle = false }) { Text("Cancel") }
-                                            Spacer(Modifier.width(8.dp))
-                                            Button(onClick = {
-                                                viewModel.updateChecklistItem(item, renameTitleText, item.notes, item.isDone)
-                                                isRenamingTitle = false
-                                            }) { Text("Save Name") }
-                                        }
-                                    }
-                                }
-
-                                AnimatedVisibility(visible = isNoteExpanded) {
-                                    OutlinedTextField(
-                                        value = itemNoteText,
-                                        onValueChange = {
-                                            itemNoteText = it
-                                            viewModel.updateChecklistItem(item, item.text, it, item.isDone)
-                                        },
-                                        label = { Text("Checklist Note / Description") },
-                                        minLines = 2,
-                                        maxLines = 6,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = newChecklistText,
-                            onValueChange = { newChecklistText = it },
-                            placeholder = { Text("New checklist item...") },
-                            modifier = Modifier.weight(1f),
-                            singleLine = true
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Button(onClick = {
-                            if (newChecklistText.isNotBlank()) {
-                                viewModel.addChecklistItem(task.id, newChecklistText)
-                                newChecklistText = ""
-                            }
-                        }) {
-                            Text("Add")
-                        }
-                    }
-                }
-            }
-
-            // =========================================================================================
-            // ATTACHMENTS CARD WITH DEDICATED MULTI-SELECT ACTION BANNER
-            // =========================================================================================
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    // Header Row with Title and Multi-Select Toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Files, Videos, Audios & Contacts",
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleSmall
-                        )
-
-                        if (liveAttachments.isNotEmpty() && !isAttachmentSelectionMode) {
-                            TextButton(onClick = { isAttachmentSelectionMode = true }) {
-                                Icon(Icons.Default.Checklist, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Select Multiple")
-                            }
-                        }
-                    }
-
-                    // Full-Width Multi-Select Banner: completely prevents right-edge button clipping
-                    AnimatedVisibility(visible = isAttachmentSelectionMode) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "${selectedAttachmentIds.size} selected",
-                                        fontWeight = FontWeight.Bold,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                    Spacer(Modifier.width(6.dp))
-                                    TextButton(
-                                        onClick = {
-                                            selectedAttachmentIds = if (selectedAttachmentIds.size == liveAttachments.size) {
-                                                emptySet()
-                                            } else {
-                                                liveAttachments.map { it.id }.toSet()
-                                            }
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = if (selectedAttachmentIds.size == liveAttachments.size) "Deselect All" else "Select All",
-                                            style = MaterialTheme.typography.labelSmall
-                                        )
-                                    }
-                                }
-
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (selectedAttachmentIds.isNotEmpty()) {
-                                        Button(
-                                            onClick = { showBatchDeleteConfirm = true },
-                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                        ) {
-                                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(Modifier.width(4.dp))
-                                            Text("Delete (${selectedAttachmentIds.size})", style = MaterialTheme.typography.labelSmall)
-                                        }
-                                    }
-
-                                    OutlinedButton(
-                                        onClick = {
-                                            isAttachmentSelectionMode = false
-                                            selectedAttachmentIds = emptySet()
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp))
-                                        Spacer(Modifier.width(2.dp))
-                                        Text("Cancel", style = MaterialTheme.typography.labelSmall)
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { filePickerLauncher.launch(arrayOf("*/*")) }) {
-                            Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Add Files")
-                        }
-                        OutlinedButton(onClick = {
-                            val videoFile = File(context.cacheDir, "video_${System.currentTimeMillis()}.mp4")
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", videoFile)
-                            tempVideoUri = uri
-                            videoRecordLauncher.launch(uri)
-                        }) {
-                            Icon(Icons.Default.Videocam, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Record Video")
-                        }
-                        OutlinedButton(onClick = {
-                            if (isRecordingAudio) {
-                                recordedAudioPath = audioHelper.stopRecording()
-                                isRecordingAudio = false
-                                recordedAudioPath?.let {
-                                    viewModel.addAttachment(task.id, AttachmentType.AUDIO, it, "Voice Memo ${fullDateTimeFormat.format(Date())}")
-                                }
-                            } else {
-                                audioHelper.startRecording()
-                                isRecordingAudio = true
-                            }
-                        }) {
-                            Icon(if (isRecordingAudio) Icons.Default.Stop else Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text(if (isRecordingAudio) "Stop Audio" else "Record Audio")
-                        }
-                        OutlinedButton(onClick = { contactPickerLauncher.launch(null) }) {
-                            Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Pick Contact")
-                        }
-                    }
-
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = manualContactName,
-                            onValueChange = { manualContactName = it },
-                            label = { Text("Name") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        OutlinedTextField(
-                            value = manualPhone,
-                            onValueChange = { manualPhone = it },
-                            label = { Text("Phone") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Button(onClick = {
-                            if (manualPhone.isNotBlank()) {
-                                viewModel.addAttachment(
-                                    taskId = task.id,
-                                    type = AttachmentType.CONTACT,
-                                    uriString = "tel:$manualPhone",
-                                    displayName = if (manualContactName.isBlank()) "Contact" else manualContactName,
-                                    contactPhone = manualPhone
+                                Text(
+                                    text = "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(item.createdTimestamp))}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
                                 )
-                                manualContactName = ""
-                                manualPhone = ""
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { isRenamingTitle = !isRenamingTitle }) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Edit Text", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { isNoteExpanded = !isNoteExpanded }) {
+                                        Icon(
+                                            Icons.Default.NoteAlt,
+                                            contentDescription = "Note",
+                                            tint = if (!item.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveChecklistItem(item, true) }) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveChecklistItem(item, false) }) {
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { itemPendingDeleteChecklist = item }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                    }
+                                }
                             }
-                        }) {
-                            Text("Add")
-                        }
-                    }
 
-                    HorizontalDivider()
-
-                    liveAttachments.forEach { att ->
-                        var isAttachmentNoteExpanded by remember { mutableStateOf(false) }
-                        var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
-                        val isSelected = att.id in selectedAttachmentIds
-
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .then(
-                                    if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)) else Modifier
-                                ),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
+                            AnimatedVisibility(visible = isRenamingTitle) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                                        .padding(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    if (isAttachmentSelectionMode) {
-                                        Checkbox(
-                                            checked = isSelected,
-                                            onCheckedChange = {
-                                                selectedAttachmentIds = if (isSelected) selectedAttachmentIds - att.id else selectedAttachmentIds + att.id
-                                            }
-                                        )
-                                        Spacer(Modifier.width(6.dp))
-                                    }
-
-                                    if (att.type == AttachmentType.CONTACT && !att.contactPhone.isNullOrBlank()) {
-                                        ContactActionRow(
-                                            displayName = att.displayName,
-                                            phoneNumber = att.contactPhone,
-                                            isPending = att.isContactPending,
-                                            onTogglePending = {
-                                                viewModel.updateAttachment(
-                                                    att,
-                                                    att.displayName,
-                                                    att.notes,
-                                                    att.contactPhone,
-                                                    !att.isContactPending
-                                                )
-                                            }
-                                        )
-                                    } else {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    try {
-                                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                            setDataAndType(Uri.parse(att.uriString), "*/*")
-                                                            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                        }
-                                                        context.startActivity(intent)
-                                                    } catch (_: Exception) {
-                                                        Toast.makeText(context, "Cannot preview file", Toast.LENGTH_SHORT).show()
-                                                    }
-                                                },
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = when (att.type) {
-                                                    AttachmentType.VIDEO -> Icons.Default.Videocam
-                                                    AttachmentType.AUDIO -> Icons.Default.Mic
-                                                    AttachmentType.CONTACT -> Icons.Default.Person
-                                                    AttachmentType.IMAGE -> Icons.Default.Image
-                                                    AttachmentType.FILE -> Icons.Default.AttachFile
-                                                },
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(26.dp)
-                                            )
-                                            Spacer(Modifier.width(12.dp))
-
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = att.displayName,
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.primary
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.createdTimestamp))}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-
-                                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { isAttachmentNoteExpanded = !isAttachmentNoteExpanded }) {
-                                            Icon(
-                                                Icons.Default.EditNote,
-                                                contentDescription = "Note",
-                                                tint = if (!att.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                                            )
-                                        }
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveAttachment(att, true) }) {
-                                            Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
-                                        }
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveAttachment(att, false) }) {
-                                            Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
-                                        }
-                                        IconButton(modifier = Modifier.size(32.dp), onClick = {
-                                            viewModel.deleteAttachment(att)
-                                        }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                                        }
-                                    }
-                                }
-
-                                AnimatedVisibility(visible = isAttachmentNoteExpanded) {
                                     OutlinedTextField(
-                                        value = attNoteText,
-                                        onValueChange = {
-                                            attNoteText = it
-                                            viewModel.updateAttachment(att, att.displayName, it, att.contactPhone, att.isContactPending)
-                                        },
-                                        label = { Text("Attachment Note / Details") },
-                                        minLines = 2,
-                                        maxLines = 6,
+                                        value = renameTitleText,
+                                        onValueChange = { renameTitleText = it },
+                                        label = { Text("Edit Checklist Name") },
                                         modifier = Modifier.fillMaxWidth()
                                     )
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                        TextButton(onClick = { isRenamingTitle = false }) { Text("Cancel") }
+                                        Spacer(Modifier.width(8.dp))
+                                        Button(onClick = {
+                                            viewModel.updateChecklistItem(item, renameTitleText, item.notes, item.isDone)
+                                            isRenamingTitle = false
+                                        }) { Text("Save Name") }
+                                    }
                                 }
+                            }
+
+                            AnimatedVisibility(visible = isNoteExpanded) {
+                                OutlinedTextField(
+                                    value = itemNoteText,
+                                    onValueChange = {
+                                        itemNoteText = it
+                                        viewModel.updateChecklistItem(item, item.text, it, item.isDone)
+                                    },
+                                    label = { Text("Checklist Note / Description") },
+                                    minLines = 2,
+                                    maxLines = 6,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             }
                         }
                     }
-
-                    Spacer(Modifier.height(32.dp))
                 }
+
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = newChecklistText,
+                        onValueChange = { newChecklistText = it },
+                        placeholder = { Text("New checklist item...") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = {
+                        if (newChecklistText.isNotBlank()) {
+                            viewModel.addChecklistItem(task.id, newChecklistText)
+                            newChecklistText = ""
+                        }
+                    }) {
+                        Text("Add")
+                    }
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Files, Videos, Audios & Contacts", fontWeight = FontWeight.Bold)
+
+                Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { filePickerLauncher.launch(arrayOf("*/*")) }) {
+                        Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add Files")
+                    }
+                    OutlinedButton(onClick = {
+                        val videoFile = File(context.cacheDir, "video_${System.currentTimeMillis()}.mp4")
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", videoFile)
+                        tempVideoUri = uri
+                        videoRecordLauncher.launch(uri)
+                    }) {
+                        Icon(Icons.Default.Videocam, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Record Video")
+                    }
+                    OutlinedButton(onClick = {
+                        if (isRecordingAudio) {
+                            recordedAudioPath = audioHelper.stopRecording()
+                            isRecordingAudio = false
+                            recordedAudioPath?.let {
+                                viewModel.addAttachment(task.id, AttachmentType.AUDIO, it, "Voice Memo ${fullDateTimeFormat.format(Date())}")
+                            }
+                        } else {
+                            audioHelper.startRecording()
+                            isRecordingAudio = true
+                        }
+                    }) {
+                        Icon(if (isRecordingAudio) Icons.Default.Stop else Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (isRecordingAudio) "Stop Audio" else "Record Audio")
+                    }
+                    OutlinedButton(onClick = { contactPickerLauncher.launch(null) }) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Pick Contact")
+                    }
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = manualContactName,
+                        onValueChange = { manualContactName = it },
+                        label = { Text("Name") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    OutlinedTextField(
+                        value = manualPhone,
+                        onValueChange = { manualPhone = it },
+                        label = { Text("Phone") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Button(onClick = {
+                        if (manualPhone.isNotBlank()) {
+                            viewModel.addAttachment(
+                                taskId = task.id,
+                                type = AttachmentType.CONTACT,
+                                uriString = "tel:$manualPhone",
+                                displayName = if (manualContactName.isBlank()) "Contact" else manualContactName,
+                                contactPhone = manualPhone
+                            )
+                            manualContactName = ""
+                            manualPhone = ""
+                        }
+                    }) {
+                        Text("Add")
+                    }
+                }
+
+                HorizontalDivider()
+
+                liveAttachments.forEach { att ->
+                    var isAttachmentNoteExpanded by remember { mutableStateOf(false) }
+                    var attNoteText by remember(att.notes) { mutableStateOf(att.notes ?: "") }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (att.type == AttachmentType.CONTACT && !att.contactPhone.isNullOrBlank()) {
+                                ContactActionRow(
+                                    displayName = att.displayName,
+                                    phoneNumber = att.contactPhone,
+                                    isPending = att.isContactPending,
+                                    onTogglePending = {
+                                        viewModel.updateAttachment(
+                                            att,
+                                            att.displayName,
+                                            att.notes,
+                                            att.contactPhone,
+                                            !att.isContactPending
+                                        )
+                                    }
+                                )
+                            } else {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                    setDataAndType(Uri.parse(att.uriString), "*/*")
+                                                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                                }
+                                                context.startActivity(intent)
+                                            } catch (_: Exception) {
+                                                Toast.makeText(context, "Cannot preview file", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = when (att.type) {
+                                            AttachmentType.VIDEO -> Icons.Default.Videocam
+                                            AttachmentType.AUDIO -> Icons.Default.Mic
+                                            AttachmentType.CONTACT -> Icons.Default.Person
+                                            AttachmentType.IMAGE -> Icons.Default.Image
+                                            AttachmentType.FILE -> Icons.Default.AttachFile
+                                        },
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                    Spacer(Modifier.width(12.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = att.displayName,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Created: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.createdTimestamp))}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { isAttachmentNoteExpanded = !isAttachmentNoteExpanded }) {
+                                        Icon(
+                                            Icons.Default.EditNote,
+                                            contentDescription = "Note",
+                                            tint = if (!att.notes.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveAttachment(att, true) }) {
+                                        Icon(Icons.Default.ArrowUpward, contentDescription = "Up", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { viewModel.moveAttachment(att, false) }) {
+                                        Icon(Icons.Default.ArrowDownward, contentDescription = "Down", modifier = Modifier.size(18.dp))
+                                    }
+                                    IconButton(modifier = Modifier.size(32.dp), onClick = { itemPendingDeleteAttachment = att }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+
+                            AnimatedVisibility(visible = isAttachmentNoteExpanded) {
+                                OutlinedTextField(
+                                    value = attNoteText,
+                                    onValueChange = {
+                                        attNoteText = it
+                                        viewModel.updateAttachment(att, att.displayName, it, att.contactPhone, att.isContactPending)
+                                    },
+                                    label = { Text("Attachment Note / Details") },
+                                    minLines = 2,
+                                    maxLines = 6,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(32.dp))
             }
         }
     }
 }
-
-// -----------------------------------------------------------------------------                                          
