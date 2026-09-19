@@ -24,21 +24,30 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          # 1. Locate project directory
-          PROJECT_DIR=$(find . -name "gradlew" -exec dirname {} \; | head -n 1)
-          if [ -z "$PROJECT_DIR" ]; then
+          # 1. Locate project root by finding settings.gradle or build.gradle
+          SETTINGS_FILE=$(find . -maxdepth 3 -name "settings.gradle*" | head -n 1)
+          if [ -n "$SETTINGS_FILE" ]; then
+            PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+          else
             PROJECT_DIR="."
           fi
+          echo "Project directory found: $PROJECT_DIR"
           cd "$PROJECT_DIR"
 
-          # 2. Fix wrapper permissions
+          # 2. Generate Gradle Wrapper if missing
+          if [ ! -f "gradlew" ]; then
+            echo "gradlew not found. Generating gradle wrapper automatically..."
+            gradle wrapper
+          fi
+
+          # 3. Fix line endings and grant execute permissions
           sed -i 's/\r$//' gradlew
           chmod +x gradlew
 
-          # 3. Reconstruct the original release.jks from GitHub Secret
+          # 4. Reconstruct the release.jks from GitHub Secret
           echo "$KEYSTORE_BASE64" | base64 --decode > release.jks
 
-          # 4. Build the AAB using the permanent key
+          # 5. Build the signed AAB
           ./gradlew bundleRelease \
             -Pandroid.injected.signing.store.file="$(pwd)/release.jks" \
             -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
