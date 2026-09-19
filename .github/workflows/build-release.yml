@@ -1,0 +1,39 @@
+name: Build Play Store Bundle
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Generate Keystore & Build Release AAB
+        run: |
+          keytool -genkey -v -keystore release.jks -alias todotree -keyalg RSA -keysize 2048 -validity 10000 -storepass mysecretpassword -keypass mysecretpassword -dname "CN=ToDoTree, OU=Mobile, O=App, L=City, S=State, C=US"
+          ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file=$(pwd)/release.jks \
+            -Pandroid.injected.signing.store.password=mysecretpassword \
+            -Pandroid.injected.signing.key.alias=todotree \
+            -Pandroid.injected.signing.key.password=mysecretpassword
+
+      - name: Upload AAB to Download
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: app/build/outputs/bundle/release/*.aab
+
+      - name: Save Keystore
+        uses: actions/upload-artifact@v4
+        with:
+          name: keystore-backup
+          path: release.jks
