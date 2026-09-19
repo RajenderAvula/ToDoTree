@@ -9,7 +9,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.infinitetodo"
+        applicationId = "com.rajenderavula.infinitetodo"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
