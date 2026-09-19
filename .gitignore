@@ -1,0 +1,22 @@
+# Keystore & Signing Secrets (Never upload to Git)
+*.jks
+*.keystore
+release.jks
+keystore.properties
+
+# Android / Gradle Build Folders
+.gradle/
+build/
+*/build/
+app/build/
+
+# Generated App Packages
+*.apk
+*.aab
+
+# Local Machine Settings
+local.properties
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
