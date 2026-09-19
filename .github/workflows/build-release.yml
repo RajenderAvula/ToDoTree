@@ -17,11 +17,44 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Generate Keystore & Build Release AAB
+      - name: Prepare Wrapper, Generate Keystore & Build Release AAB
         run: |
-          keytool -genkey -v -keystore release.jks -alias todotree -keyalg RSA -keysize 2048 -validity 10000 -storepass mysecretpassword -keypass mysecretpassword -dname "CN=ToDoTree, OU=Mobile, O=App, L=City, S=State, C=US"
+          # 1. Locate the folder where the Android project actually lives
+          PROJECT_DIR=$(find . -name "gradlew" -exec dirname {} \; | head -n 1)
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR=$(find . -name "settings.gradle*" -exec dirname {} \; | head -n 1)
+          fi
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR="."
+          fi
+
+          echo "Project directory is: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+
+          # 2. Fix Windows CRLF line endings & grant execute permission
+          if [ -f "gradlew" ]; then
+            sed -i 's/\r$//' gradlew
+            chmod +x gradlew
+          else
+            echo "gradlew not found, generating wrapper..."
+            gradle wrapper
+            chmod +x gradlew
+          fi
+
+          # 3. Create the signing key
+          KEYSTORE_PATH="$(pwd)/release.jks"
+          keytool -genkey -v -keystore "$KEYSTORE_PATH" \
+            -alias todotree \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass mysecretpassword \
+            -keypass mysecretpassword \
+            -dname "CN=ToDoTree, OU=Mobile, O=App, L=City, S=State, C=US"
+
+          # 4. Build the signed bundle (.aab)
           ./gradlew bundleRelease \
-            -Pandroid.injected.signing.store.file=$(pwd)/release.jks \
+            -Pandroid.injected.signing.store.file="$KEYSTORE_PATH" \
             -Pandroid.injected.signing.store.password=mysecretpassword \
             -Pandroid.injected.signing.key.alias=todotree \
             -Pandroid.injected.signing.key.password=mysecretpassword
@@ -30,10 +63,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: app-release
-          path: app/build/outputs/bundle/release/*.aab
+          path: "**/build/outputs/bundle/release/*.aab"
 
       - name: Save Keystore
         uses: actions/upload-artifact@v4
         with:
           name: keystore-backup
-          path: release.jks
+          path: "**/release.jks"
